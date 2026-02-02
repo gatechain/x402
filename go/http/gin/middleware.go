@@ -263,6 +263,26 @@ func createMiddlewareHandler(server *x402http.HTTPServer, config *MiddlewareConf
 		fmt.Printf("🔍 [GIN REQUEST DEBUG] Processed HTTP request\n")
 		fmt.Printf("   Result Type: %v\n", result.Type)
 		fmt.Printf("   Path: %s, Method: %s\n", reqCtx.Path, reqCtx.Method)
+		
+		// Check for payment header
+		paymentHeader := adapter.GetHeader("PAYMENT-SIGNATURE")
+		if paymentHeader == "" {
+			paymentHeader = adapter.GetHeader("payment-signature")
+		}
+		if paymentHeader != "" {
+			fmt.Printf("   Payment header found: %s...\n", paymentHeader[:50])
+		} else {
+			fmt.Printf("   No payment header found\n")
+		}
+		
+		// Log error details if payment error
+		if result.Type == x402http.ResultPaymentError && result.Response != nil {
+			if body, ok := result.Response.Body.(map[string]interface{}); ok {
+				if errorMsg, ok := body["error"].(string); ok {
+					fmt.Printf("   Payment error: %s\n", errorMsg)
+				}
+			}
+		}
 
 		// Handle result
 		switch result.Type {

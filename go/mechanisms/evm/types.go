@@ -34,6 +34,10 @@ type ClientEvmSigner interface {
 
 	// SignTypedData signs EIP-712 typed data
 	SignTypedData(ctx context.Context, domain TypedDataDomain, types map[string][]TypedDataField, primaryType string, message map[string]interface{}) ([]byte, error)
+
+	// SignDigest signs a raw digest (32-byte hash)
+	// This is used when we have DOMAIN_SEPARATOR from chain and want to sign directly
+	SignDigest(ctx context.Context, digest []byte) ([]byte, error)
 }
 
 // FacilitatorEvmSigner defines the interface for facilitator EVM operations

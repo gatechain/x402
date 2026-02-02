@@ -149,3 +149,21 @@ func (s *ClientSigner) SignTypedData(
 
 	return signature, nil
 }
+
+// SignDigest signs a raw digest (32-byte hash)
+func (s *ClientSigner) SignDigest(ctx context.Context, digest []byte) ([]byte, error) {
+	if len(digest) != 32 {
+		return nil, fmt.Errorf("digest must be 32 bytes, got %d", len(digest))
+	}
+
+	// Sign the digest with ECDSA
+	signature, err := crypto.Sign(digest, s.privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign digest: %w", err)
+	}
+
+	// Adjust v value for Ethereum (recovery ID 0/1 → 27/28)
+	signature[64] += 27
+
+	return signature, nil
+}

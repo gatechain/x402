@@ -168,6 +168,10 @@ func (t *PaymentRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 		return resp, nil
 	}
 
+	// Debug: Log that we detected 402
+	// Note: In production, this should use a proper logger
+	_ = fmt.Sprintf("PaymentRoundTripper: detected 402, retry count: %d", retries)
+
 	// Increment retry count
 	t.retryCount.Store(requestID, retries+1)
 
@@ -207,14 +211,14 @@ func (t *PaymentRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 		payloadBytes, err = t.handleV1Payment(ctx, body)
 		if err != nil {
 			t.retryCount.Delete(requestID)
-			return nil, err
+			return nil, fmt.Errorf("failed to handle V1 payment: %w", err)
 		}
 	} else {
 		// V2 flow: header-based PaymentRequired, V2 types
 		payloadBytes, err = t.handleV2Payment(ctx, headers, body)
 		if err != nil {
 			t.retryCount.Delete(requestID)
-			return nil, err
+			return nil, fmt.Errorf("failed to handle V2 payment: %w", err)
 		}
 	}
 
