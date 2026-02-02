@@ -28,7 +28,10 @@ Add the x402 Go module to your project:
 
 ```bash
 go get github.com/gatechain/x402/go
+go mod tidy
 ```
+
+The `go mod tidy` command will automatically download all required dependencies and update your `go.mod` and `go.sum` files.
 
 ### 2. Set Up Environment Variables
 
@@ -211,7 +214,10 @@ Add the x402 Go module to your project:
 
 ```bash
 go get github.com/gatechain/x402/go
+go mod tidy
 ```
+
+The `go mod tidy` command will automatically download all required dependencies and update your `go.mod` and `go.sum` files.
 
 ### 2. Create a Payment-Enabled HTTP Client
 
@@ -363,7 +369,7 @@ export GATE_WEB3_REAL_IP="your-real-ip"  # Defaults to 127.0.0.1
 
 ### Facilitator Configuration
 
-The facilitator client uses Gate Web3 OpenAPI by default:
+The facilitator client uses Gate Web3 OpenAPI by default. It automatically uses Gate Web3 authentication if environment variables are set:
 
 ```go
 facilitatorClient := x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConfig{
@@ -372,10 +378,14 @@ facilitatorClient := x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConf
 	HTTPClient: &http.Client{
 		Timeout: 30 * time.Second,
 	},
-	// Optional: Custom auth provider
-	AuthProvider: &MyAuthProvider{},
 })
 ```
+
+The client will automatically use the following environment variables for authentication:
+- `GATE_WEB3_API_KEY`
+- `GATE_WEB3_API_SECRET`
+- `GATE_WEB3_PASSPHRASE` (optional)
+- `GATE_WEB3_REAL_IP` (optional)
 
 ### Network Identifiers
 

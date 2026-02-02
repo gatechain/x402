@@ -28,7 +28,10 @@
 
 ```bash
 go get github.com/gatechain/x402/go
+go mod tidy
 ```
+
+`go mod tidy` 命令会自动下载所有必需的依赖并更新您的 `go.mod` 和 `go.sum` 文件。
 
 ### 2. 设置环境变量
 
@@ -211,7 +214,10 @@ func main() {
 
 ```bash
 go get github.com/gatechain/x402/go
+go mod tidy
 ```
+
+`go mod tidy` 命令会自动下载所有必需的依赖并更新您的 `go.mod` 和 `go.sum` 文件。
 
 ### 2. 创建支持支付的 HTTP 客户端
 
@@ -363,7 +369,7 @@ export GATE_WEB3_REAL_IP="your-real-ip"  # Defaults to 127.0.0.1
 
 ### Facilitator 配置
 
-facilitator 客户端默认使用 Gate Web3 OpenAPI：
+facilitator 客户端默认使用 Gate Web3 OpenAPI。如果设置了环境变量，它会自动使用 Gate Web3 认证：
 
 ```go
 facilitatorClient := x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConfig{
@@ -372,10 +378,14 @@ facilitatorClient := x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConf
 	HTTPClient: &http.Client{
 		Timeout: 30 * time.Second,
 	},
-	// Optional: Custom auth provider
-	AuthProvider: &MyAuthProvider{},
 })
 ```
+
+客户端会自动使用以下环境变量进行认证：
+- `GATE_WEB3_API_KEY`
+- `GATE_WEB3_API_SECRET`
+- `GATE_WEB3_PASSPHRASE` (可选)
+- `GATE_WEB3_REAL_IP` (可选)
 
 ### 网络标识符
 
