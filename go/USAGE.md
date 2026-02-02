@@ -7,7 +7,6 @@ This guide walks you through how to use the **x402 Go SDK** to build payment-ena
 - [Quickstart for Sellers](#quickstart-for-sellers)
 - [Quickstart for Buyers](#quickstart-for-buyers)
 - [Configuration](#configuration)
-- [Examples](#examples)
 
 ---
 
@@ -50,7 +49,7 @@ export GATE_WEB3_REAL_IP="your-real-ip"
 
 ### 3. Create a Payment-Protected Server
 
-Here's a complete example using Gin framework:
+Here's a complete, runnable example using Gin framework:
 
 ```go
 package main
@@ -147,95 +146,7 @@ func main() {
 }
 ```
 
-### 4. Configure Gate Web3 Authentication (Optional)
-
-The facilitator client automatically uses Gate Web3 authentication if environment variables are set. Set these before running your server:
-
-```bash
-export GATE_WEB3_API_KEY="your-api-key"
-export GATE_WEB3_API_SECRET="your-api-secret"
-export GATE_WEB3_PASSPHRASE="your-passphrase"  # Optional
-export GATE_WEB3_REAL_IP="your-real-ip"        # Optional, defaults to 127.0.0.1
-```
-
-If these are not set, you can provide a custom `AuthProvider`:
-
-```go
-package main
-
-import (
-	"context"
-	"os"
-	"strconv"
-	"time"
-
-	"github.com/google/uuid"
-	x402http "github.com/gatechain/x402/go/http"
-)
-
-// MyAuthProvider implements custom authentication for Gate Web3 OpenAPI
-type MyAuthProvider struct {
-	apiKey     string
-	apiSecret  string
-	passphrase string
-	realIP     string
-}
-
-func NewMyAuthProvider() *MyAuthProvider {
-	return &MyAuthProvider{
-		apiKey:     os.Getenv("GATE_WEB3_API_KEY"),
-		apiSecret:  os.Getenv("GATE_WEB3_API_SECRET"),
-		passphrase: os.Getenv("GATE_WEB3_PASSPHRASE"),
-		realIP:     os.Getenv("GATE_WEB3_REAL_IP"),
-	}
-}
-
-func (a *MyAuthProvider) GetAuthHeaders(ctx context.Context) (x402http.AuthHeaders, error) {
-	timestamp := time.Now().UnixMilli()
-	requestID := uuid.NewString()
-
-	// Create signature for verify endpoint
-	verifyHeaders := a.createHeaders(timestamp, requestID, "v1/x402/verify")
-	settleHeaders := a.createHeaders(timestamp, requestID, "v1/x402/settle")
-	supportedHeaders := a.createHeaders(timestamp, requestID, "v1/x402/supported")
-
-	return x402http.AuthHeaders{
-		Verify:    verifyHeaders,
-		Settle:    settleHeaders,
-		Supported: supportedHeaders,
-	}, nil
-}
-
-func (a *MyAuthProvider) createHeaders(timestamp int64, requestID, targetURI string) map[string]string {
-	headers := map[string]string{
-		"X-Api-Key":     a.apiKey,
-		"X-Timestamp":   strconv.FormatInt(timestamp, 10),
-		"X-Request-Id":  requestID,
-		"x-target-uri":  targetURI,
-	}
-
-	if a.passphrase != "" {
-		headers["X-Passphrase"] = a.passphrase
-	}
-
-	if a.realIP != "" {
-		headers["X-Forwarded-For"] = a.realIP
-	}
-
-	// Note: X-Signature is calculated by the SDK automatically
-	// If you need custom signature logic, implement it here
-
-	return headers
-}
-
-// Usage:
-facilitatorClient := x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConfig{
-	URL:          "https://openapi-test.gateweb3.cc/api/v1/x402",
-	AuthProvider: NewMyAuthProvider(),
-})
-```
-
-### 5. Test Your Integration
+### 4. Test Your Integration
 
 1. Start your server:
    ```bash
@@ -253,83 +164,20 @@ facilitatorClient := x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConf
 
 5. After successful payment verification, the server returns your API response.
 
-### 6. Route Configuration
-
-Routes define payment requirements for specific endpoints:
-
-```go
-package main
-
-import (
-	"os"
-
-	x402http "github.com/gatechain/x402/go/http"
-)
-
-func main() {
-	// Get payee address from environment
-	payeeAddress := os.Getenv("PAYEE_ADDRESS")
-	if payeeAddress == "" {
-		payeeAddress = "0x1234567890123456789012345678901234567890" // Example address
-	}
-
-	routes := x402http.RoutesConfig{
-		"GET /weather": {
-			Accepts: x402http.PaymentOptions{
-				{
-					Scheme:  "exact",           // Payment scheme
-					PayTo:   payeeAddress,      // Payment recipient address
-					Price:   "$0.001",         // Price in USD
-					Network: "gatelayer_testnet", // Network identifier
-				},
-			},
-			Description: "Get weather data for a city",
-			MimeType:    "application/json",
-		},
-		"POST /api/data": {
-			Accepts: x402http.PaymentOptions{
-				{
-					Scheme:  "exact",
-					PayTo:   payeeAddress,
-					Price:   "$0.01",
-					Network: "gatelayer_testnet",
-				},
-			},
-			Description: "Submit data to the API",
-			MimeType:    "application/json",
-		},
-		"GET /api/premium": {
-			Accepts: x402http.PaymentOptions{
-				{
-					Scheme:  "exact",
-					PayTo:   payeeAddress,
-					Price:   "$0.10",
-					Network: "gatelayer_testnet",
-				},
-			},
-			Description: "Access premium content",
-			MimeType:    "application/json",
-		},
-	}
-
-	_ = routes // Use routes in middleware configuration
-}
-```
-
-#### Payment Asset Selection
+### 5. Payment Asset Selection
 
 **How assets are selected:**
 
 1. **Server-side (Seller)**: When you specify a price like `"$0.001"`, the SDK automatically:
    - Parses the USD amount
-   - Looks up the default asset for the specified network (configured in `mechanisms/evm/constants.go`)
+   - Looks up the default asset for the specified network (configured in `go/mechanisms/evm/constants.go`)
    - For `gatelayer_testnet`, the default asset is USDC at address `0x9be8Df37C788B244cFc28E46654aD5Ec28a880AF`
+   - For `gatelayer` (mainnet), the default asset is configured per network
    - Converts the USD amount to the token's smallest unit (e.g., $0.001 = 1000 for USDC with 6 decimals)
    - The SDK uses the chain's DOMAIN_SEPARATOR for signing to ensure compatibility with the token contract
 
 2. **Client-side (Buyer)**: When the client receives payment requirements:
    - The client filters available options to those matching registered schemes/networks
-   - If multiple options are available, the client selects the first matching one
    - The client uses the asset address specified in the payment requirements to create the payment
 
 **Default Assets by Network:**
@@ -337,73 +185,11 @@ func main() {
 | Network | Default Asset | Address |
 |---------|--------------|---------|
 | `gatelayer_testnet` | USDC | `0x9be8Df37C788B244cFc28E46654aD5Ec28a880AF` |
-| `eip155:8453` (Base Mainnet) | USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
-| `eip155:84532` (Base Sepolia) | USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
+| `gatelayer` | USDC | (configured per network) |
 
 **Note**: The asset is automatically determined from the network configuration. You don't need to specify the asset address when using USD pricing (`"$0.001"`).
 
 **EIP-712 Signing**: The SDK automatically uses the chain's DOMAIN_SEPARATOR for signing. For `gatelayer_testnet`, it uses the correct DOMAIN_SEPARATOR from the token contract to ensure signatures are valid.
-
-### 7. Multi-Network Support
-
-You can support multiple networks on the same endpoint:
-
-```go
-package main
-
-import (
-	"os"
-	"time"
-
-	x402 "github.com/gatechain/x402/go"
-	x402http "github.com/gatechain/x402/go/http"
-	ginmw "github.com/gatechain/x402/go/http/gin"
-	evm "github.com/gatechain/x402/go/mechanisms/evm/exact/server"
-	svm "github.com/gatechain/x402/go/mechanisms/svm/exact/server"
-	"github.com/gin-gonic/gin"
-)
-
-func main() {
-	evmPayee := os.Getenv("EVM_PAYEE_ADDRESS")
-	svmPayee := os.Getenv("SVM_PAYEE_ADDRESS")
-
-	r := gin.Default()
-	facilitatorClient := x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConfig{
-		URL: "https://openapi-test.gateweb3.cc/api/v1/x402",
-	})
-
-	r.Use(ginmw.X402Payment(ginmw.Config{
-		Routes: x402http.RoutesConfig{
-			"GET /weather": {
-				Accepts: x402http.PaymentOptions{
-					{
-						Scheme:  "exact",
-						PayTo:   evmPayee,
-						Price:   "$0.001",
-						Network: "gatelayer_testnet",
-					},
-					{
-						Scheme:  "exact",
-						PayTo:   svmPayee,
-						Price:   "$0.001",
-						Network: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-					},
-				},
-				Description: "Get weather data",
-				MimeType:    "application/json",
-			},
-		},
-		Facilitator: facilitatorClient,
-		Schemes: []ginmw.SchemeConfig{
-			{Network: x402.Network("gatelayer_testnet"), Server: evm.NewExactEvmScheme()},
-			{Network: x402.Network("solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"), Server: svm.NewExactSvmScheme()},
-		},
-		Timeout: 30 * time.Second,
-	}))
-
-	r.Run(":4021")
-}
-```
 
 ---
 
@@ -427,44 +213,11 @@ Add the x402 Go module to your project:
 go get github.com/gatechain/x402/go
 ```
 
-### 2. Create a Wallet Signer
-
-Create a signer from your private key:
-
-```go
-package main
-
-import (
-	"fmt"
-	"log"
-	"os"
-
-	evmsigners "github.com/gatechain/x402/go/signers/evm"
-)
-
-func main() {
-	// Load private key from environment variable
-	privateKey := os.Getenv("EVM_PRIVATE_KEY")
-	if privateKey == "" {
-		log.Fatal("❌ EVM_PRIVATE_KEY environment variable is required")
-	}
-
-	// Create EVM signer
-	evmSigner, err := evmsigners.NewClientSignerFromPrivateKey(privateKey)
-	if err != nil {
-		log.Fatalf("❌ Failed to create signer: %v", err)
-	}
-
-	fmt.Printf("✅ Signer created successfully\n")
-	fmt.Printf("   Address: %s\n", evmSigner.Address())
-}
-```
-
-### 4. Create a Payment-Enabled HTTP Client
+### 2. Create a Payment-Enabled HTTP Client
 
 The SDK automatically handles payment creation and signing using the chain's DOMAIN_SEPARATOR. For `gatelayer_testnet`, it uses the correct DOMAIN_SEPARATOR from the token contract to ensure signatures are valid.
 
-Here's a complete example:
+Here's a complete, runnable example:
 
 ```go
 package main
@@ -475,7 +228,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	x402 "github.com/gatechain/x402/go"
@@ -499,7 +251,7 @@ func main() {
 
 	fmt.Printf("🚀 Making paid request to: %s\n\n", url)
 
-	// Create EVM signer
+	// Create EVM signer from private key
 	evmSigner, err := evmsigners.NewClientSignerFromPrivateKey(privateKey)
 	if err != nil {
 		fmt.Printf("❌ Failed to create signer: %v\n", err)
@@ -579,7 +331,7 @@ func main() {
 }
 ```
 
-### 5. How It Works
+### 3. How It Works
 
 The wrapped HTTP client automatically:
 
@@ -590,152 +342,6 @@ The wrapped HTTP client automatically:
 3. **Retries with payment**: The client automatically retries the request with the `X-PAYMENT` header containing the payment payload.
 
 4. **Handles settlement**: After successful payment verification, the server returns the resource and includes a `PAYMENT-RESPONSE` header with settlement confirmation.
-
-### 6. Multi-Network Client Setup
-
-You can register multiple payment schemes to handle different networks:
-
-```go
-package main
-
-import (
-	"fmt"
-	"net/http"
-	"os"
-
-	x402 "github.com/gatechain/x402/go"
-	x402http "github.com/gatechain/x402/go/http"
-	evm "github.com/gatechain/x402/go/mechanisms/evm/exact/client"
-	svm "github.com/gatechain/x402/go/mechanisms/svm/exact/client"
-	evmsigners "github.com/gatechain/x402/go/signers/evm"
-	svmsigners "github.com/gatechain/x402/go/signers/svm"
-)
-
-func main() {
-	// Create signers
-	evmPrivateKey := os.Getenv("EVM_PRIVATE_KEY")
-	svmPrivateKey := os.Getenv("SVM_PRIVATE_KEY")
-
-	if evmPrivateKey == "" && svmPrivateKey == "" {
-		fmt.Println("❌ At least one of EVM_PRIVATE_KEY or SVM_PRIVATE_KEY is required")
-		os.Exit(1)
-	}
-
-	var evmSigner evmsigners.ClientEvmSigner
-	var svmSigner svmsigners.ClientSvmSigner
-	var err error
-
-	if evmPrivateKey != "" {
-		evmSigner, err = evmsigners.NewClientSignerFromPrivateKey(evmPrivateKey)
-		if err != nil {
-			fmt.Printf("❌ Failed to create EVM signer: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("✅ EVM signer created: %s\n", evmSigner.Address())
-	}
-
-	if svmPrivateKey != "" {
-		svmSigner, err = svmsigners.NewClientSignerFromPrivateKey(svmPrivateKey)
-		if err != nil {
-			fmt.Printf("❌ Failed to create SVM signer: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("✅ SVM signer created: %s\n", svmSigner.Address())
-	}
-
-	// Create client with multiple schemes
-	x402Client := x402.Newx402Client()
-
-	if evmSigner != nil {
-		x402Client = x402Client.Register("gatelayer_testnet", evm.NewExactEvmScheme(evmSigner))
-	}
-
-	if svmSigner != nil {
-		x402Client = x402Client.Register("solana:*", svm.NewExactSvmScheme(svmSigner))
-	}
-
-	// Wrap HTTP client with payment handling
-	httpClient := x402http.WrapHTTPClientWithPayment(
-		http.DefaultClient,
-		x402http.Newx402HTTPClient(x402Client),
-	)
-
-	// Now handles both EVM and Solana networks automatically!
-	fmt.Println("✅ Multi-network client ready")
-	_ = httpClient // Use httpClient for requests
-}
-```
-
-### 7. Error Handling
-
-The client will return errors if:
-
-* No scheme is registered for the required network
-* The payment payload creation fails
-* The payment verification fails
-* The request times out
-
-Example error handling:
-
-```go
-package main
-
-import (
-	"errors"
-	"fmt"
-	"os"
-	"strings"
-
-	x402 "github.com/gatechain/x402/go"
-)
-
-func handleRequestError(err error) {
-	if err == nil {
-		return
-	}
-
-	// Check for specific error types
-	errMsg := err.Error()
-	switch {
-	case strings.Contains(errMsg, "No scheme registered"):
-		fmt.Println("❌ Network not supported - register the appropriate scheme")
-		fmt.Println("   Example: client.Register(\"gatelayer_testnet\", evmScheme)")
-	case strings.Contains(errMsg, "Payment verification failed"):
-		fmt.Println("❌ Payment was rejected by the facilitator")
-		fmt.Println("   Check your wallet balance and payment requirements")
-	case strings.Contains(errMsg, "402 Payment Required"):
-		fmt.Println("❌ Payment required but failed to create payment payload")
-		fmt.Println("   Check your signer configuration")
-	case strings.Contains(errMsg, "context deadline exceeded"):
-		fmt.Println("❌ Request timeout - the server took too long to respond")
-	default:
-		fmt.Printf("❌ Request failed: %v\n", err)
-	}
-
-	// Try to extract more details from error
-	var verifyErr *x402.VerifyError
-	if errors.As(err, &verifyErr) {
-		fmt.Printf("   Reason: %s\n", verifyErr.Reason)
-		fmt.Printf("   Payer: %s\n", verifyErr.Payer)
-		fmt.Printf("   Network: %s\n", verifyErr.Network)
-	}
-
-	var settleErr *x402.SettleError
-	if errors.As(err, &settleErr) {
-		fmt.Printf("   Reason: %s\n", settleErr.Reason)
-		fmt.Printf("   Transaction: %s\n", settleErr.Transaction)
-		fmt.Printf("   Network: %s\n", settleErr.Network)
-	}
-
-	os.Exit(1)
-}
-
-// Usage in main:
-resp, err := httpClient.Do(req)
-if err != nil {
-	handleRequestError(err)
-}
-```
 
 ---
 
@@ -773,14 +379,12 @@ facilitatorClient := x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConf
 
 ### Network Identifiers
 
-x402 uses CAIP-2 format for network identifiers:
+x402 uses CAIP-2 format for network identifiers. Currently supported networks:
 
 | Network | CAIP-2 Identifier | Default Asset |
 |---------|-------------------|---------------|
 | Gate Layer Testnet | `gatelayer_testnet` | USDC (`0x9be8Df37C788B244cFc28E46654aD5Ec28a880AF`) |
 | Gate Layer Mainnet | `gatelayer` | USDC (configured per network) |
-| Base Mainnet | `eip155:8453` | USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) |
-| Base Sepolia | `eip155:84532` | USDC (`0x036CbD53842c5426634e7929541eC2318f3dCF7e`) |
 
 **Payment Asset Selection:**
 
@@ -798,30 +402,12 @@ x402 uses CAIP-2 format for network identifiers:
 
 ---
 
-## Examples
-
-### Complete Server Example
-
-See [`examples/go/servers/gin/`](../examples/go/servers/gin/) for a complete Gin server example.
-
-### Complete Client Example
-
-See [`examples/go/clients/http/`](../examples/go/clients/http/) for a complete HTTP client example.
-
-### Advanced Examples
-
-* **Custom Transport**: [`examples/go/clients/advanced/`](../examples/go/clients/advanced/)
-* **Dynamic Pricing**: [`examples/go/servers/advanced/`](../examples/go/servers/advanced/)
-* **Bazaar Discovery**: [`examples/go/servers/advanced/bazaar.go`](../examples/go/servers/advanced/bazaar.go)
-
----
-
 ## Next Steps
 
-* Read the detailed [CLIENT.md](CLIENT.md) documentation for building payment-enabled clients
-* Read the detailed [SERVER.md](SERVER.md) documentation for building payment-accepting servers
-* Read the detailed [FACILITATOR.md](FACILITATOR.md) documentation for building payment facilitators
-* Explore the [examples](../examples/go/) directory for more code samples
+* Read the detailed [CLIENT.md](https://github.com/gatechain/x402/blob/main/go/CLIENT.md) documentation for building payment-enabled clients
+* Read the detailed [SERVER.md](https://github.com/gatechain/x402/blob/main/go/SERVER.md) documentation for building payment-accepting servers
+* Read the detailed [FACILITATOR.md](https://github.com/gatechain/x402/blob/main/go/FACILITATOR.md) documentation for building payment facilitators
+* Explore the [examples](https://github.com/gatechain/x402/tree/main/examples/go) directory for more code samples
 
 ---
 
