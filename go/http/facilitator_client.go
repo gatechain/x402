@@ -70,7 +70,7 @@ const DefaultFacilitatorURL = "https://openapi-test.gateweb3.cc/api/v1/x402"
 
 // Gate Web3 signing path and logical target URIs (used for x-target-uri)
 const (
-	gateWeb3SigningPath          = "/api/v1/dex"
+	gateWeb3SigningPath          = "/api/v1/x402"
 	gateWeb3TargetURISupported   = "/v1/x402/supported"
 	gateWeb3TargetURIVerify      = "/v1/x402/verify"
 	gateWeb3TargetURISettle      = "/v1/x402/settle"
