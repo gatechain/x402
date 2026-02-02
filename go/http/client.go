@@ -168,10 +168,6 @@ func (t *PaymentRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 		return resp, nil
 	}
 
-	// Debug: Log that we detected 402
-	// Note: In production, this should use a proper logger
-	_ = fmt.Sprintf("PaymentRoundTripper: detected 402, retry count: %d", retries)
-
 	// Increment retry count
 	t.retryCount.Store(requestID, retries+1)
 

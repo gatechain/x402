@@ -384,12 +384,6 @@ func (s *x402HTTPResourceServer) ProcessHTTPRequest(ctx context.Context, reqCtx 
 	if verifyErr != nil {
 		err = verifyErr
 		errorMsg := err.Error()
-		
-		// Debug: Log verification error details
-		fmt.Printf("🔍 [SERVER VERIFY DEBUG] Payment verification failed\n")
-		fmt.Printf("   Error: %v\n", verifyErr)
-		fmt.Printf("   Error type: %T\n", verifyErr)
-		fmt.Printf("   Error message: %s\n", errorMsg)
 
 		paymentRequired := s.CreatePaymentRequiredResponse(
 			requirements,
