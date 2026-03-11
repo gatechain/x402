@@ -8,6 +8,11 @@ import com.coinbase.x402.model.PaymentPayload;
 import com.coinbase.x402.model.PaymentRequirements;
 import com.coinbase.x402.model.PaymentRequiredResponse;
 import com.coinbase.x402.model.SettlementResponseHeader;
+import com.coinbase.x402.model.PaymentPayloadV2;
+import com.coinbase.x402.model.PaymentRequirementsV2;
+import com.coinbase.x402.model.PaymentRequiredV2;
+import com.coinbase.x402.model.ResourceInfo;
+import com.coinbase.x402.model.SettlementResponseV2;
 import com.coinbase.x402.util.Json;
 
 import jakarta.servlet.Filter;
@@ -92,24 +97,44 @@ public class PaymentFilter implements Filter {
             return;
         }
 
-        String header = request.getHeader("X-PAYMENT");
-        if (header == null || header.isEmpty()) {
+        String paymentSignatureHeader = request.getHeader("PAYMENT-SIGNATURE");
+        String legacyHeader           = request.getHeader("X-PAYMENT");
+
+        boolean hasV2Header = paymentSignatureHeader != null && !paymentSignatureHeader.isEmpty();
+        boolean hasV1Header = legacyHeader != null && !legacyHeader.isEmpty();
+
+        if (!hasV2Header && !hasV1Header) {
             respond402(response, path, null);
             return;
         }
 
         VerificationResponse vr;
-        PaymentPayload payload;
+        PaymentPayload       payloadV1 = null;
+        PaymentPayloadV2     payloadV2 = null;
+        String               headerForFacilitator;
         try {
-            payload = PaymentPayload.fromHeader(header);
+            if (hasV2Header) {
+                payloadV2 = PaymentPayloadV2.fromHeader(paymentSignatureHeader);
+                headerForFacilitator = paymentSignatureHeader;
 
-            // simple sanity: resource must match the URL path
-            if (!Objects.equals(payload.payload.get("resource"), path)) {
-                respond402(response, path, "resource mismatch");
-                return;
+                // 对 V2：仍然要求 payload 中的 resource 字段与 path 匹配（与旧逻辑保持一致）
+                Object res = payloadV2.payload != null ? payloadV2.payload.get("resource") : null;
+                if (!Objects.equals(res, path)) {
+                    respond402(response, path, "resource mismatch");
+                    return;
+                }
+            } else {
+                // 兼容旧 V1 头
+                payloadV1 = PaymentPayload.fromHeader(legacyHeader);
+
+                if (!Objects.equals(payloadV1.payload.get("resource"), path)) {
+                    respond402(response, path, "resource mismatch");
+                    return;
+                }
+                headerForFacilitator = legacyHeader;
             }
 
-            vr = facilitator.verify(header, buildRequirements(path));
+            vr = facilitator.verify(headerForFacilitator, buildRequirements(path));
         } catch (IllegalArgumentException ex) {
             // Malformed payment header - client error
             respond402(response, path, "malformed X-PAYMENT header");
@@ -152,7 +177,7 @@ public class PaymentFilter implements Filter {
         }
 
         try {
-            SettlementResponse sr = facilitator.settle(header, buildRequirements(path));
+            SettlementResponse sr = facilitator.settle(headerForFacilitator, buildRequirements(path));
             if (sr == null || !sr.success) {
                 // Settlement failed - return 402 if headers not sent yet
                 if (!response.isCommitted()) {
@@ -165,13 +190,23 @@ public class PaymentFilter implements Filter {
             // Settlement succeeded - add settlement response header (base64-encoded JSON) 
             try {
                 // Extract payer from payment payload (wallet address of person making payment)
-                String payer = extractPayerFromPayload(payload);
-                
-                String base64Header = createPaymentResponseHeader(sr, payer);
-                response.setHeader("X-PAYMENT-RESPONSE", base64Header);
-                
-                // Set CORS header to expose X-PAYMENT-RESPONSE to browser clients
-                response.setHeader("Access-Control-Expose-Headers", "X-PAYMENT-RESPONSE");
+                String payer = extractPayerFromPayload(
+                    payloadV1 != null ? payloadV1 : (payloadV2 != null ? toV1Payload(payloadV2) : null)
+                );
+
+                // Legacy header (for existing clients)
+                String base64LegacyHeader = createPaymentResponseHeader(sr, payer);
+                response.setHeader("X-PAYMENT-RESPONSE", base64LegacyHeader);
+
+                // New V2-style header aligned with Go SDK
+                String base64V2Header = createPaymentResponseHeaderV2(sr, payer);
+                response.setHeader("PAYMENT-RESPONSE", base64V2Header);
+
+                // Set CORS header to expose settlement headers to browser clients
+                response.setHeader(
+                    "Access-Control-Expose-Headers",
+                    "X-PAYMENT-RESPONSE, PAYMENT-RESPONSE"
+                );
             } catch (Exception ex) {
                 // If header creation fails, return 500
                 if (!response.isCommitted()) {
@@ -196,7 +231,7 @@ public class PaymentFilter implements Filter {
 
     /* ------------------------------------------------ helpers ---------- */
 
-    /** Build a PaymentRequirements object for the given path and price. */
+    /** Build a V1 PaymentRequirements object for the given path and price. */
     private PaymentRequirements buildRequirements(String path) {
         PaymentRequirements pr = new PaymentRequirements();
         pr.scheme            = "exact";
@@ -210,7 +245,42 @@ public class PaymentFilter implements Filter {
         return pr;
     }
 
-    /** Create a base64-encoded payment response header. */
+    /** Build a V2 PaymentRequirements object for the given path and price. */
+    private PaymentRequirementsV2 buildRequirementsV2(String path) {
+        PaymentRequirementsV2 pr = new PaymentRequirementsV2();
+        pr.scheme            = "exact";
+        pr.network           = "base-sepolia";
+        pr.amount            = priceTable.get(path).toString();
+        pr.asset             = "USDC";
+        pr.payTo             = payTo;
+        pr.maxTimeoutSeconds = 30;
+
+        // extra.resourceUrl 与 Go 侧保持一致语义
+        Map<String, Object> extra = new java.util.HashMap<>();
+        extra.put("resourceUrl", path);
+        pr.extra = extra;
+
+        return pr;
+    }
+
+    /** Create a V2 PaymentRequired object. */
+    private PaymentRequiredV2 buildPaymentRequiredV2(String path, String error) {
+        PaymentRequiredV2 pr = new PaymentRequiredV2();
+        pr.x402Version = 2;
+        pr.error       = error;
+
+        ResourceInfo resourceInfo = new ResourceInfo();
+        resourceInfo.url       = path;
+        resourceInfo.mimeType  = "application/json";
+        pr.resource            = resourceInfo;
+
+        pr.accepts.add(buildRequirementsV2(path));
+        pr.extensions = null;
+
+        return pr;
+    }
+
+    /** Create a base64-encoded legacy payment response header. */
     private String createPaymentResponseHeader(SettlementResponse sr, String payer) throws Exception {
         SettlementResponseHeader settlementHeader = new SettlementResponseHeader(
             true,
@@ -220,6 +290,19 @@ public class PaymentFilter implements Filter {
         );
         
         String jsonString = Json.MAPPER.writeValueAsString(settlementHeader);
+        return Base64.getEncoder().encodeToString(jsonString.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Create a base64-encoded V2-style settlement response header. */
+    private String createPaymentResponseHeaderV2(SettlementResponse sr, String payer) throws Exception {
+        SettlementResponseV2 settlement = new SettlementResponseV2();
+        settlement.success     = sr.success;
+        settlement.transaction = sr.txHash;
+        settlement.network     = sr.networkId;
+        settlement.payer       = payer;
+        settlement.errorReason = sr.error;
+
+        String jsonString = Json.MAPPER.writeValueAsString(settlement);
         return Base64.getEncoder().encodeToString(jsonString.getBytes(StandardCharsets.UTF_8));
     }
 
@@ -253,11 +336,42 @@ public class PaymentFilter implements Filter {
         resp.setStatus(HttpServletResponse.SC_PAYMENT_REQUIRED);
         resp.setContentType("application/json");
 
-        PaymentRequiredResponse prr = new PaymentRequiredResponse();
-        prr.x402Version = 1;
-        prr.accepts.add(buildRequirements(path));
-        prr.error = error;
+        // V2 header (primary for new clients, aligned with Go SDK)
+        PaymentRequiredV2 v2 = buildPaymentRequiredV2(path, error);
+        String v2Json;
+        try {
+            v2Json = Json.MAPPER.writeValueAsString(v2);
+            String v2Base64 = Base64.getEncoder().encodeToString(
+                    v2Json.getBytes(StandardCharsets.UTF_8)
+            );
+            resp.setHeader("PAYMENT-REQUIRED", v2Base64);
+        } catch (IOException e) {
+            // If V2 header creation fails, fall back to legacy body only
+            v2Json = null;
+        }
 
-        resp.getWriter().write(Json.MAPPER.writeValueAsString(prr));
+        // Legacy V1 JSON body kept for backwards compatibility with existing Java clients
+        PaymentRequiredResponse v1 = new PaymentRequiredResponse();
+        v1.x402Version = 1;
+        v1.accepts.add(buildRequirements(path));
+        v1.error = error;
+
+        resp.getWriter().write(Json.MAPPER.writeValueAsString(v1));
+    }
+
+    /**
+     * Convert a V2 payload into a minimal V1-style payload for payer extraction,
+     * reusing the existing extraction logic.
+     */
+    private PaymentPayload toV1Payload(PaymentPayloadV2 v2) {
+        if (v2 == null) {
+            return null;
+        }
+        PaymentPayload p = new PaymentPayload();
+        p.x402Version = v2.x402Version;
+        p.scheme      = v2.accepted != null ? v2.accepted.scheme : null;
+        p.network     = v2.accepted != null ? v2.accepted.network : null;
+        p.payload     = v2.payload;
+        return p;
     }
 }
