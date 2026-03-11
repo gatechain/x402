@@ -116,13 +116,8 @@ public class PaymentFilter implements Filter {
             if (hasV2Header) {
                 payloadV2 = PaymentPayloadV2.fromHeader(paymentSignatureHeader);
                 headerForFacilitator = paymentSignatureHeader;
-
-                // 对 V2：仍然要求 payload 中的 resource 字段与 path 匹配（与旧逻辑保持一致）
-                Object res = payloadV2.payload != null ? payloadV2.payload.get("resource") : null;
-                if (!Objects.equals(res, path)) {
-                    respond402(response, path, "resource mismatch");
-                    return;
-                }
+                // V2 与 Go 实现对齐：不再强制校验 payload.payload["resource"] 与 path 完全相等，
+                // 资源信息由 PaymentRequirementsV2.resourceUrl / ResourceInfo.URL 传递和校验。
             } else {
                 // 兼容旧 V1 头
                 payloadV1 = PaymentPayload.fromHeader(legacyHeader);
@@ -301,6 +296,7 @@ public class PaymentFilter implements Filter {
         settlement.network     = sr.networkId;
         settlement.payer       = payer;
         settlement.errorReason = sr.error;
+        settlement.extra       = sr.extra;
 
         String jsonString = Json.MAPPER.writeValueAsString(settlement);
         return Base64.getEncoder().encodeToString(jsonString.getBytes(StandardCharsets.UTF_8));
