@@ -9,5 +9,6 @@ public class SettlementResponseV2 {
     public String  payer;
     public String  network;
     public String  transaction;
+    public java.util.Map<String, Object> extra;
 }
 

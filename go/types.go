@@ -87,13 +87,16 @@ type VerifyResponse struct {
 }
 
 // SettleResponse contains the settlement result
-// If settlement fails, an error (typically *SettleError) is returned and this will be nil
+// If settlement fails, an error (typically *SettleError) is returned and this will be nil.
+// Extra is an optional bag for chain-/facilitator-specific metadata and is intentionally
+// left opaque so different environments can attach custom fields without breaking clients.
 type SettleResponse struct {
-	Success     bool    `json:"success"`
-	ErrorReason string  `json:"errorReason,omitempty"`
-	Payer       string  `json:"payer,omitempty"`
-	Transaction string  `json:"transaction"`
-	Network     Network `json:"network"`
+	Success     bool                   `json:"success"`
+	ErrorReason string                 `json:"errorReason,omitempty"`
+	Payer       string                 `json:"payer,omitempty"`
+	Transaction string                 `json:"transaction"`
+	Network     Network                `json:"network"`
+	Extra       map[string]interface{} `json:"extra,omitempty"`
 }
 
 // ResourceConfig defines payment configuration for a protected resource

@@ -296,6 +296,7 @@ public class PaymentFilter implements Filter {
         settlement.network     = sr.networkId;
         settlement.payer       = payer;
         settlement.errorReason = sr.error;
+        settlement.extra       = sr.extra;
 
         String jsonString = Json.MAPPER.writeValueAsString(settlement);
         return Base64.getEncoder().encodeToString(jsonString.getBytes(StandardCharsets.UTF_8));

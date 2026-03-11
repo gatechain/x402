@@ -13,4 +13,10 @@ public class SettlementResponse {
     
     /** Network ID where the settlement occurred. */
     public String  networkId;
+
+    /**
+     * Optional bag of facilitator-specific metadata.
+     * This is a direct mapping of the Go {@code x402.SettleResponse.Extra} field.
+     */
+    public java.util.Map<String, Object> extra;
 }
