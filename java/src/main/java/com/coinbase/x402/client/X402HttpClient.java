@@ -3,6 +3,9 @@ package com.coinbase.x402.client;
 import com.coinbase.x402.crypto.CryptoSigner;
 import com.coinbase.x402.crypto.CryptoSignException;
 import com.coinbase.x402.model.PaymentPayload;
+import com.coinbase.x402.model.PaymentPayloadV2;
+import com.coinbase.x402.model.PaymentRequirementsV2;
+import com.coinbase.x402.model.ResourceInfo;
 
 import java.io.IOException;
 import java.math.BigInteger;
@@ -11,12 +14,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * Convenience wrapper that builds an HTTP request with a properly-formed
- * X-PAYMENT header for the “exact” EVM scheme on Base Sepolia.
+     * Convenience wrapper that builds an HTTP request with properly-formed
+     * V2 payment headers for the “exact” EVM scheme on Base Sepolia.
  *
  * You provide a {@link CryptoSigner} implementation to actually sign the
  * payment payload (e.g. using web3j). Everything else is generic JSON + Base64.
@@ -24,7 +28,8 @@ import java.util.UUID;
 public class X402HttpClient {
 
     private final HttpClient http = HttpClient.newHttpClient();
-    private final int    x402Version = 1;
+    // Default to V2 protocol; V1 header is still emitted for backwards compatibility.
+    private final int    x402Version = 2;
     private final String scheme      = "exact";
     private final String network     = "base-sepolia";
 
@@ -52,14 +57,13 @@ public class X402HttpClient {
     }
 
     /**
-     * Build and execute a <strong>GET</strong> request that includes an X-PAYMENT
-     * header proving the caller intends to pay {@code amount} of {@code assetContract}
+     * Build and execute a <strong>GET</strong> request that includes payment
+     * headers proving the caller intends to pay {@code amount} of {@code assetContract}
      * to {@code payTo}.
      *
-     * @param uri           destination (must include path)
-     * @param amount        amount in atomic units (wei, lamports, etc.)
-     * @param assetContract token contract address (incl. 0x prefix) or symbol
-     * @param payTo         receiver address (same chain as asset)
+     * 协议对齐 Go V2：
+     * - 首选：PAYMENT-SIGNATURE: base64(json(PaymentPayloadV2))
+     * - 兼容：X-PAYMENT: base64(json(PaymentPayload V1))
      */
     public HttpResponse<String> get(URI uri,
                                     BigInteger amount,
@@ -81,15 +85,41 @@ public class X402HttpClient {
         }
         /* ---------------------------------------------------------------- */
 
-        PaymentPayload p = new PaymentPayload();
-        p.x402Version = x402Version;
-        p.scheme      = scheme;
-        p.network     = network;
-        p.payload     = pl;
+        // -------------------- V2 payload ---------------------------------
+        PaymentRequirementsV2 accepted = new PaymentRequirementsV2();
+        accepted.scheme            = scheme;
+        accepted.network           = network;
+        accepted.asset             = assetContract;
+        accepted.amount            = amount.toString();
+        accepted.payTo             = payTo;
+        accepted.maxTimeoutSeconds = 30;
+
+        Map<String, Object> extra = new HashMap<>();
+        extra.put("resourceUrl", uri.toString());
+        accepted.extra = extra;
+
+        ResourceInfo resourceInfo = new ResourceInfo();
+        resourceInfo.url = uri.toString();
+        resourceInfo.mimeType = "application/json";
+
+        PaymentPayloadV2 v2 = new PaymentPayloadV2();
+        v2.x402Version = x402Version;
+        v2.payload     = pl;
+        v2.accepted    = accepted;
+        v2.resource    = resourceInfo;
+        v2.extensions  = null;
+
+        // -------------------- V1 payload (compat) ------------------------
+        PaymentPayload v1 = new PaymentPayload();
+        v1.x402Version = 1;
+        v1.scheme      = scheme;
+        v1.network     = network;
+        v1.payload     = pl;
 
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(uri)
-                .header("X-PAYMENT", p.toHeader())
+                .header("PAYMENT-SIGNATURE", v2.toHeader())
+                .header("X-PAYMENT", v1.toHeader())
                 .GET()
                 .build();
 
