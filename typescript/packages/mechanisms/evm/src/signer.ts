@@ -1,7 +1,12 @@
 /**
  * ClientEvmSigner - Used by x402 clients to sign payment authorizations
  * This is typically a LocalAccount or wallet that holds private keys
- * and can sign EIP-712 typed data for payment authorizations
+ * and can sign EIP-712 typed data for payment authorizations.
+ *
+ * Optional signDigest: when provided, used for chains where the token's
+ * DOMAIN_SEPARATOR must be used exactly (e.g. Gate Layer Testnet USDC).
+ * The signer must sign the 32-byte EIP-712 digest with no extra prefix
+ * and return v,r,s in the same format as signTypedData.
  */
 export type ClientEvmSigner = {
   readonly address: `0x${string}`;
@@ -11,6 +16,12 @@ export type ClientEvmSigner = {
     primaryType: string;
     message: Record<string, unknown>;
   }): Promise<`0x${string}`>;
+  /**
+   * Optional: sign a raw 32-byte EIP-712 digest (no 0x19\x01 prefix added).
+   * Required for correct verification on chains that use a fixed DOMAIN_SEPARATOR
+   * (e.g. gatelayer_testnet USDC). If not set, signTypedData is used.
+   */
+  signDigest?(digest: `0x${string}`): Promise<`0x${string}`>;
 };
 
 /**
@@ -60,6 +71,34 @@ export type FacilitatorEvmSigner = {
  */
 export function toClientEvmSigner(signer: ClientEvmSigner): ClientEvmSigner {
   return signer;
+}
+
+/**
+ * Wraps a ClientEvmSigner (e.g. from viem privateKeyToAccount) and adds signDigest
+ * so that gatelayer_testnet USDC signatures verify (uses chain's DOMAIN_SEPARATOR).
+ *
+ * If the account has a .sign(msg) that accepts { hash: Hex }, it will be used for signDigest.
+ * Otherwise pass a custom signDigest implementation (e.g. using ethers wallet.signingKey.signDigest).
+ *
+ * @param account - Base signer with address and signTypedData
+ * @param signDigestImpl - Optional: (digest) => signature. If not set and account has .sign(), uses account.sign({ hash: digest })
+ */
+export function withSignDigest(
+  account: Pick<ClientEvmSigner, "address" | "signTypedData"> & {
+    sign?(message: { hash?: `0x${string}` }): Promise<`0x${string}`>;
+  },
+  signDigestImpl?: (digest: `0x${string}`) => Promise<`0x${string}`>,
+): ClientEvmSigner {
+  const signDigest =
+    signDigestImpl ??
+    (account.sign
+      ? (digest: `0x${string}`) => account.sign!({ hash: digest })
+      : undefined);
+  return {
+    address: account.address,
+    signTypedData: account.signTypedData.bind(account),
+    ...(signDigest && { signDigest }),
+  };
 }
 
 /**
