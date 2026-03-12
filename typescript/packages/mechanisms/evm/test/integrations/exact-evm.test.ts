@@ -24,15 +24,10 @@ import { privateKeyToAccount } from "viem/accounts";
 import { createWalletClient, createPublicClient, http } from "viem";
 import { baseSepolia } from "viem/chains";
 
-// Load private keys from environment
-const CLIENT_PRIVATE_KEY = process.env.CLIENT_PRIVATE_KEY as `0x${string}`;
-const FACILITATOR_PRIVATE_KEY = process.env.FACILITATOR_PRIVATE_KEY as `0x${string}`;
-
-if (!CLIENT_PRIVATE_KEY || !FACILITATOR_PRIVATE_KEY) {
-  throw new Error(
-    "CLIENT_PRIVATE_KEY and FACILITATOR_PRIVATE_KEY environment variables must be set for integration tests",
-  );
-}
+// Load private keys from environment (skip suite when missing so other integration tests can run)
+const CLIENT_PRIVATE_KEY = process.env.CLIENT_PRIVATE_KEY as `0x${string}` | undefined;
+const FACILITATOR_PRIVATE_KEY = process.env.FACILITATOR_PRIVATE_KEY as `0x${string}` | undefined;
+const hasBaseSepoliaEnv = !!CLIENT_PRIVATE_KEY && !!FACILITATOR_PRIVATE_KEY;
 
 /**
  * EVM Facilitator Client wrapper
@@ -116,7 +111,7 @@ function buildEvmPaymentRequirements(
   };
 }
 
-describe("EVM Integration Tests", () => {
+describe.skipIf(!hasBaseSepoliaEnv)("EVM Integration Tests", () => {
   describe("x402Client / x402ResourceServer / x402Facilitator - EVM Flow", () => {
     let client: x402Client;
     let server: x402ResourceServer;

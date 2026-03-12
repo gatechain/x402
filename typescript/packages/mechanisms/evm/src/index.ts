@@ -12,7 +12,13 @@ export {
   buildEip712DigestTransferWithAuthorization,
   GATELAYER_TESTNET_USDC_ADDRESS,
   GATELAYER_TESTNET_USDC_DOMAIN_SEPARATOR,
+  GATELAYER_TESTNET_TOKEN_DOMAIN_SEPARATORS,
+  getGatelayerTestnetDomainSeparator,
 } from "./gatelayer";
 export type { TransferWithAuthorizationLike } from "./gatelayer";
+export {
+  createSignerFromPrivateKey,
+  signDigestWithPrivateKey,
+} from "./signerFromPrivateKey";
 export { toClientEvmSigner, toFacilitatorEvmSigner, withSignDigest } from "./signer";
 export type { ClientEvmSigner, FacilitatorEvmSigner } from "./signer";

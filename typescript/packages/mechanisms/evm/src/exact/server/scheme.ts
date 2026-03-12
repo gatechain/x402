@@ -6,6 +6,7 @@ import {
   SchemeNetworkServer,
   MoneyParser,
 } from "@x402/core/types";
+import { GATELAYER_TESTNET_USDC_ADDRESS } from "../../gatelayer";
 
 /**
  * EVM server implementation for the Exact payment scheme.
@@ -201,6 +202,12 @@ export class ExactEvmScheme implements SchemeNetworkServer {
         version: "2",
         decimals: 6,
       }, // Base Sepolia USDC
+      gatelayer_testnet: {
+        address: GATELAYER_TESTNET_USDC_ADDRESS,
+        name: "USDC",
+        version: "2",
+        decimals: 6,
+      }, // Gate Layer Testnet USDC
     };
 
     const assetInfo = stablecoins[network];

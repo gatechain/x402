@@ -73,6 +73,13 @@ var (
 		},
 	}
 
+	// GateLayerTestnetDomainSeparators maps token address (lowercase) to DOMAIN_SEPARATOR from chain (hex with 0x).
+	// Used for EIP-3009 signing when the contract's domain separator must match exactly.
+	GateLayerTestnetDomainSeparators = map[string]string{
+		"0x9be8df37c788b244cfc28e46654ad5ec28a880af": "0x2c2d6b621e73a4a094449d1894717413742130fb20149ec48340ca0354d1a707", // USDC
+		"0x081ff58e7d7105ad400f4cc76becfd8684013a4d": "0x7c6ddc1021fbf24f4dbe62b331d83549a44e91bee3d396a33171bebe573b0fab", // additional token
+	}
+
 	// EIP-3009 ABI for transferWithAuthorization with v,r,s (EOA signatures)
 	TransferWithAuthorizationVRSABI = []byte(`[
 		{
