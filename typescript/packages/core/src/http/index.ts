@@ -102,6 +102,7 @@ export {
 } from "./x402HTTPResourceServer";
 export {
   HTTPFacilitatorClient,
+  DEFAULT_FACILITATOR_URL,
   FacilitatorClient,
   FacilitatorConfig,
 } from "./httpFacilitatorClient";
