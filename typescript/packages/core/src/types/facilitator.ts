@@ -23,6 +23,8 @@ export type SettleResponse = {
   payer?: string;
   transaction: string;
   network: Network;
+  /** Optional bag for facilitator-specific metadata (aligned with Go x402.SettleResponse.Extra). */
+  extra?: Record<string, unknown>;
 };
 
 export type SupportedKind = {

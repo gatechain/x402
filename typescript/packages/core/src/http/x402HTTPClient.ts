@@ -7,11 +7,18 @@ import { SettleResponse } from "../types";
 import { PaymentPayload, PaymentRequired } from "../types/payments";
 import { x402Client } from "../client/x402Client";
 
+/** HTTP 402 status code */
+const STATUS_PAYMENT_REQUIRED = 402;
+
+/** Max retries after 402 (one retry with payment, aligned with Go). */
+const MAX_PAYMENT_RETRIES = 1;
+
 /**
  * HTTP-specific client for handling x402 payment protocol over HTTP.
  *
  * Wraps a x402Client to provide HTTP-specific encoding/decoding functionality
- * for payment headers and responses while maintaining the builder pattern.
+ * for payment headers and responses. Supports fetchWithPayment / getWithPayment
+ * so callers can hit a paid resource and automatically handle 402 (PAYMENT-REQUIRED).
  */
 export class x402HTTPClient {
   /**
@@ -105,5 +112,126 @@ export class x402HTTPClient {
    */
   async createPaymentPayload(paymentRequired: PaymentRequired): Promise<PaymentPayload> {
     return this.client.createPaymentPayload(paymentRequired);
+  }
+
+  /**
+   * Performs a fetch with automatic 402 handling: on 402, parses PAYMENT-REQUIRED (or V1 body),
+   * creates a payment payload, and retries the request with PAYMENT-SIGNATURE / X-PAYMENT headers.
+   * Aligned with Go WrapHTTPClientWithPayment + PaymentRoundTripper.
+   *
+   * @param input - URL string or Request (if Request, body is consumed on first fetch)
+   * @param init - Optional fetch init (for Request input, use init to pass extra options)
+   * @returns The final Response (after at most one retry with payment)
+   */
+  async fetchWithPayment(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    let firstInit: RequestInit;
+    let bodyForRetry: BodyInit | undefined;
+
+    if (typeof input === "object" && input instanceof Request) {
+      firstInit = {
+        method: input.method,
+        headers: input.headers,
+        body: input.body,
+        mode: input.mode,
+        credentials: input.credentials,
+        cache: input.cache,
+        redirect: input.redirect,
+        referrer: input.referrer,
+        integrity: input.integrity,
+      };
+      const cloned = input.clone();
+      bodyForRetry = await cloned.arrayBuffer();
+    } else {
+      firstInit = { ...init };
+      bodyForRetry = firstInit.body ?? undefined;
+    }
+
+    const response = await fetch(url, firstInit);
+
+    if (response.status !== STATUS_PAYMENT_REQUIRED) {
+      return response;
+    }
+
+    const getHeader = (name: string): string | null => {
+      const h = response.headers.get(name);
+      if (h != null) return h;
+      const lower = name.toLowerCase();
+      for (const [k, v] of response.headers.entries()) {
+        if (k.toLowerCase() === lower) return v;
+      }
+      return null;
+    };
+
+    let bodyJson: unknown = undefined;
+    try {
+      const text = await response.text();
+      if (text) {
+        bodyJson = JSON.parse(text) as unknown;
+      }
+    } catch {
+      // ignore body parse
+    }
+
+    let paymentRequired: PaymentRequired;
+    try {
+      paymentRequired = this.getPaymentRequiredResponse(getHeader, bodyJson);
+    } catch (e) {
+      throw new Error(
+        `Failed to parse 402 Payment Required: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+
+    const paymentPayload = await this.createPaymentPayload(paymentRequired);
+    const paymentHeaders = this.encodePaymentSignatureHeader(paymentPayload);
+
+    const nextHeaders = new Headers(firstInit.headers ?? {});
+    for (const [k, v] of Object.entries(paymentHeaders)) {
+      nextHeaders.set(k, v);
+    }
+
+    const secondResponse = await fetch(url, {
+      ...firstInit,
+      headers: nextHeaders,
+      body: bodyForRetry ?? undefined,
+    });
+
+    if (secondResponse.status === STATUS_PAYMENT_REQUIRED) {
+      throw new Error(
+        "Payment retry limit exceeded: server returned 402 again after sending payment",
+      );
+    }
+
+    return secondResponse;
+  }
+
+  /**
+   * GET with automatic 402 handling. Convenience for fetchWithPayment(url, { method: "GET" }).
+   *
+   * @param url - Resource URL
+   * @param init - Optional fetch init
+   * @returns The final Response
+   */
+  async getWithPayment(url: string, init?: RequestInit): Promise<Response> {
+    return this.fetchWithPayment(url, { ...init, method: "GET" });
+  }
+
+  /**
+   * POST with automatic 402 handling. Convenience for fetchWithPayment(url, { method: "POST", body }).
+   *
+   * @param url - Resource URL
+   * @param body - Optional body (e.g. JSON string or FormData)
+   * @param init - Optional fetch init
+   * @returns The final Response
+   */
+  async postWithPayment(
+    url: string,
+    body?: BodyInit | null,
+    init?: RequestInit,
+  ): Promise<Response> {
+    return this.fetchWithPayment(url, { ...init, method: "POST", body: body ?? undefined });
   }
 }

@@ -9,6 +9,7 @@ import { getAddress, Hex, isAddressEqual, parseErc6492Signature, parseSignature 
 import { authorizationTypes, eip3009ABI } from "../../constants";
 import { FacilitatorEvmSigner } from "../../signer";
 import { ExactEvmPayloadV2 } from "../../types";
+import { getEvmChainIdFromNetwork } from "../../utils";
 
 export interface ExactEvmSchemeConfig {
   /**
@@ -115,7 +116,7 @@ export class ExactEvmScheme implements SchemeNetworkFacilitator {
       domain: {
         name,
         version,
-        chainId: parseInt(requirements.network.split(":")[1]),
+        chainId: getEvmChainIdFromNetwork(requirements.network),
         verifyingContract: erc20Address,
       },
       message: {
