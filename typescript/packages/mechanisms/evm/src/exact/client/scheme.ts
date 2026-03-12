@@ -3,8 +3,7 @@ import { getAddress } from "viem";
 import { authorizationTypes } from "../../constants";
 import {
   buildEip712DigestTransferWithAuthorization,
-  GATELAYER_TESTNET_USDC_ADDRESS,
-  GATELAYER_TESTNET_USDC_DOMAIN_SEPARATOR,
+  getGatelayerTestnetDomainSeparator,
 } from "../../gatelayer";
 import { ClientEvmSigner } from "../../signer";
 import { ExactEvmPayloadV2 } from "../../types";
@@ -73,19 +72,19 @@ export class ExactEvmScheme implements SchemeNetworkClient {
     authorization: ExactEvmPayloadV2["authorization"],
     requirements: PaymentRequirements,
   ): Promise<`0x${string}`> {
-    const assetLower = requirements.asset?.toLowerCase() ?? "";
-    const useGatelayerSeparator =
-      String(requirements.network) === "gatelayer_testnet" &&
-      assetLower === GATELAYER_TESTNET_USDC_ADDRESS;
+    const domainSeparator =
+      String(requirements.network) === "gatelayer_testnet"
+        ? getGatelayerTestnetDomainSeparator(requirements.asset ?? "")
+        : undefined;
 
-    if (useGatelayerSeparator) {
+    if (domainSeparator) {
       if (typeof this.signer.signDigest !== "function") {
         throw new Error(
-          "For gatelayer_testnet with USDC at 0x9be8Df37C788B244cFc28E46654aD5Ec28a880AF, provide a signer with signDigest(digest) so the signature matches the chain's DOMAIN_SEPARATOR. Example: signDigest: (digest) => account.sign({ hash: digest })",
+          "For gatelayer_testnet with this token, use a signer with signDigest so the signature matches the chain's DOMAIN_SEPARATOR. Use createSignerFromPrivateKey(privateKey) from @x402/evm, or provide signDigest that signs the raw 32-byte digest (no personal_sign prefix).",
         );
       }
       const digest = buildEip712DigestTransferWithAuthorization(
-        GATELAYER_TESTNET_USDC_DOMAIN_SEPARATOR,
+        domainSeparator,
         {
           from: authorization.from,
           to: authorization.to,

@@ -103,21 +103,22 @@ func (c *ExactEvmScheme) CreatePaymentPayload(
 		Nonce:       nonce,
 	}
 
-	// For gatelayer_testnet with specific token, use hardcoded DOMAIN_SEPARATOR from chain
-	if networkStr == "gatelayer_testnet" && assetInfo.Address == "0x9be8Df37C788B244cFc28E46654aD5Ec28a880AF" {
-		// Use hardcoded DOMAIN_SEPARATOR from chain: 0x2c2d6b621e73a4a094449d1894717413742130fb20149ec48340ca0354d1a707
-		domainSeparator, _ := hex.DecodeString("2c2d6b621e73a4a094449d1894717413742130fb20149ec48340ca0354d1a707")
-		if len(domainSeparator) == 32 {
-			signature, err := c.signWithDomainSeparator(ctx, authorization, domainSeparator)
-			if err == nil {
-				evmPayload := &evm.ExactEIP3009Payload{
-					Signature:     evm.BytesToHex(signature),
-					Authorization: authorization,
+	// For gatelayer_testnet with known token, use hardcoded DOMAIN_SEPARATOR from chain
+	if networkStr == "gatelayer_testnet" {
+		if sepHex, ok := evm.GateLayerTestnetDomainSeparators[strings.ToLower(assetInfo.Address)]; ok {
+			domainSeparator, err := hex.DecodeString(strings.TrimPrefix(sepHex, "0x"))
+			if err == nil && len(domainSeparator) == 32 {
+				signature, err := c.signWithDomainSeparator(ctx, authorization, domainSeparator)
+				if err == nil {
+					evmPayload := &evm.ExactEIP3009Payload{
+						Signature:     evm.BytesToHex(signature),
+						Authorization: authorization,
+					}
+					return types.PaymentPayload{
+						X402Version: 2,
+						Payload:     evmPayload.ToMap(),
+					}, nil
 				}
-				return types.PaymentPayload{
-					X402Version: 2,
-					Payload:     evmPayload.ToMap(),
-				}, nil
 			}
 		}
 	}

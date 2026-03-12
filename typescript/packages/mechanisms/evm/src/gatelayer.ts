@@ -1,5 +1,5 @@
 /**
- * Gate Layer Testnet USDC: use chain's DOMAIN_SEPARATOR for EIP-3009 signing
+ * Gate Layer Testnet tokens: use chain's DOMAIN_SEPARATOR for EIP-3009 signing
  * so signatures verify on-chain. Aligned with Go exact/client/scheme.go.
  */
 import { type Hex, concatHex, keccak256, padHex, toHex } from "viem";
@@ -10,6 +10,21 @@ export const GATELAYER_TESTNET_USDC_ADDRESS = "0x9be8Df37C788B244cFc28E46654aD5E
 /** DOMAIN_SEPARATOR from chain for that USDC contract (Go hardcoded value). */
 export const GATELAYER_TESTNET_USDC_DOMAIN_SEPARATOR: Hex =
   "0x2c2d6b621e73a4a094449d1894717413742130fb20149ec48340ca0354d1a707";
+
+/**
+ * Map of gatelayer_testnet token address (lowercase) -> DOMAIN_SEPARATOR from chain.
+ * Add new tokens here when they require exact chain DOMAIN_SEPARATOR for verification.
+ */
+export const GATELAYER_TESTNET_TOKEN_DOMAIN_SEPARATORS: Record<string, Hex> = {
+  [GATELAYER_TESTNET_USDC_ADDRESS]: GATELAYER_TESTNET_USDC_DOMAIN_SEPARATOR,
+  "0x081ff58e7d7105ad400f4cc76becfd8684013a4d":
+    "0x7c6ddc1021fbf24f4dbe62b331d83549a44e91bee3d396a33171bebe573b0fab" as Hex,
+};
+
+/** Resolve DOMAIN_SEPARATOR for a gatelayer_testnet token; returns undefined if not hardcoded. */
+export function getGatelayerTestnetDomainSeparator(asset: string): Hex | undefined {
+  return GATELAYER_TESTNET_TOKEN_DOMAIN_SEPARATORS[asset?.toLowerCase() ?? ""];
+}
 
 const TRANSFER_WITH_AUTHORIZATION_TYPE =
   "TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)";
