@@ -8,5 +8,11 @@
 // The actual implementation logic will be added by copying from the core/src/schemes/evm folder
 
 export { ExactEvmScheme } from "./exact";
-export { toClientEvmSigner, toFacilitatorEvmSigner } from "./signer";
+export {
+  buildEip712DigestTransferWithAuthorization,
+  GATELAYER_TESTNET_USDC_ADDRESS,
+  GATELAYER_TESTNET_USDC_DOMAIN_SEPARATOR,
+} from "./gatelayer";
+export type { TransferWithAuthorizationLike } from "./gatelayer";
+export { toClientEvmSigner, toFacilitatorEvmSigner, withSignDigest } from "./signer";
 export type { ClientEvmSigner, FacilitatorEvmSigner } from "./signer";
