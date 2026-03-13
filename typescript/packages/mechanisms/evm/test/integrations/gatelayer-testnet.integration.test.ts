@@ -152,6 +152,7 @@ describe("Gate gatelayer_testnet end-to-end (TypeScript)", () => {
       expect(settleResult.payer).toBeDefined();
       expect(settleResult.transaction).toBeDefined();
     },
+    30000,
   );
 });
 
