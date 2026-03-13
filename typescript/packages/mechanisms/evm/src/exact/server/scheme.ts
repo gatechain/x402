@@ -190,12 +190,30 @@ export class ExactEvmScheme implements SchemeNetworkServer {
       string,
       { address: string; name: string; version: string; decimals: number }
     > = {
+      "eip155:1": {
+        address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        name: "USD Coin",
+        version: "2",
+        decimals: 6,
+      }, // Ethereum mainnet USDC (CAIP-2)
+      eth: {
+        address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        name: "USD Coin",
+        version: "2",
+        decimals: 6,
+      }, // Ethereum mainnet USDC (short name)
       "eip155:8453": {
         address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         name: "USD Coin",
         version: "2",
         decimals: 6,
-      }, // Base mainnet USDC
+      }, // Base mainnet USDC (CAIP-2)
+      base: {
+        address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        name: "USD Coin",
+        version: "2",
+        decimals: 6,
+      }, // Base mainnet USDC (short name)
       "eip155:84532": {
         address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
         name: "USDC",

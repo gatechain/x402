@@ -39,6 +39,8 @@ const (
 var (
 	// Network chain IDs
 	ChainIDGateLayerTestnet = big.NewInt(10087) // Gate Layer Testnet chain ID (0x2767)
+	ChainIDEthereumMainnet  = big.NewInt(1)     // Ethereum mainnet chain ID
+	ChainIDBaseMainnet      = big.NewInt(8453)  // Base mainnet chain ID
 
 	// Network configurations
 	// See DEFAULT_ASSET.md for guidelines on adding new chains
@@ -66,6 +68,46 @@ var (
 			ChainID: ChainIDGateLayerTestnet,
 			DefaultAsset: AssetInfo{
 				Address:  "0x9be8Df37C788B244cFc28E46654aD5Ec28a880AF", // USDC on Gate Layer Testnet
+				Name:     "USDC",
+				Version:  "2",
+				Decimals: DefaultDecimals,
+			},
+		},
+		// Ethereum mainnet (CAIP-2 format)
+		"eip155:1": {
+			ChainID: ChainIDEthereumMainnet,
+			DefaultAsset: AssetInfo{
+				Address:  "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", // USDC on Ethereum mainnet
+				Name:     "USDC",
+				Version:  "2",
+				Decimals: DefaultDecimals,
+			},
+		},
+		// Ethereum mainnet (short name)
+		"eth": {
+			ChainID: ChainIDEthereumMainnet,
+			DefaultAsset: AssetInfo{
+				Address:  "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", // USDC on Ethereum mainnet
+				Name:     "USDC",
+				Version:  "2",
+				Decimals: DefaultDecimals,
+			},
+		},
+		// Base mainnet (CAIP-2 format)
+		"eip155:8453": {
+			ChainID: ChainIDBaseMainnet,
+			DefaultAsset: AssetInfo{
+				Address:  "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base mainnet
+				Name:     "USDC",
+				Version:  "2",
+				Decimals: DefaultDecimals,
+			},
+		},
+		// Base mainnet (short name)
+		"base": {
+			ChainID: ChainIDBaseMainnet,
+			DefaultAsset: AssetInfo{
+				Address:  "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base mainnet
 				Name:     "USDC",
 				Version:  "2",
 				Decimals: DefaultDecimals,
