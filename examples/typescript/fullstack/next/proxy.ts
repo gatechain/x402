@@ -1,5 +1,9 @@
 import { paymentProxy } from "@x402/next";
-import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
+import {
+  x402ResourceServer,
+  HTTPFacilitatorClient,
+  DEFAULT_FACILITATOR_URL,
+} from "@x402/core/server";
 import { registerExactEvmScheme } from "@x402/evm/exact/server";
 import { registerExactSvmScheme } from "@x402/svm/exact/server";
 import { createPaywall } from "@x402/paywall";
@@ -7,19 +11,21 @@ import { evmPaywall } from "@x402/paywall/evm";
 import { svmPaywall } from "@x402/paywall/svm";
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 
-const facilitatorUrl = process.env.FACILITATOR_URL;
-export const evmAddress = process.env.EVM_ADDRESS as `0x${string}`;
-export const svmAddress = process.env.SVM_ADDRESS;
+// Aligned with Go examples / HTTPFacilitatorClient: openapi-test when unset.
+const facilitatorUrl =
+  (process.env.FACILITATOR_URL ?? "").trim() || DEFAULT_FACILITATOR_URL;
 
-if (!facilitatorUrl) {
-  console.error("❌ FACILITATOR_URL environment variable is required");
-  process.exit(1);
-}
+// Turbo / `next build` often runs without inheriting your interactive shell `export`.
+// Defaults are example payTo placeholders only — set `EVM_ADDRESS` / `SVM_ADDRESS` in `.env` for real payouts.
+const DEFAULT_EXAMPLE_EVM_PAYTO =
+  "0x000000000000000000000000000000000000dEaD" as `0x${string}`;
+const DEFAULT_EXAMPLE_SVM_PAYTO = "So11111111111111111111111111111111111111112";
 
-if (!evmAddress || !svmAddress) {
-  console.error("❌ EVM_ADDRESS and SVM_ADDRESS environment variables are required");
-  process.exit(1);
-}
+export const evmAddress = (
+  (process.env.EVM_ADDRESS ?? "").trim() || DEFAULT_EXAMPLE_EVM_PAYTO
+) as `0x${string}`;
+export const svmAddress =
+  (process.env.SVM_ADDRESS ?? "").trim() || DEFAULT_EXAMPLE_SVM_PAYTO;
 
 // Create HTTP facilitator client
 const facilitatorClient = new HTTPFacilitatorClient({ url: facilitatorUrl });

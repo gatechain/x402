@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"log"
 	"sync"
 	"time"
 
@@ -185,7 +186,8 @@ func PaymentMiddleware(routes x402http.RoutesConfig, server *x402.X402ResourceSe
 		ctx, cancel := context.WithTimeout(context.Background(), config.Timeout)
 		defer cancel()
 		if err := httpServer.Initialize(ctx); err != nil {
-			fmt.Printf("Warning: failed to initialize x402 server: %v\n", err)
+			log.Printf("x402 init failed (facilitator /supported): %v", err)
+			log.Printf("hint: for Gate openapi-test, set GATE_WEB3_API_KEY and GATE_WEB3_API_SECRET (and optional GATE_WEB3_PASSPHRASE / GATE_WEB3_REAL_IP)")
 		}
 	}
 
@@ -228,7 +230,8 @@ func PaymentMiddlewareFromConfig(routes x402http.RoutesConfig, opts ...Middlewar
 		ctx, cancel := context.WithTimeout(context.Background(), config.Timeout)
 		defer cancel()
 		if err := httpServer.Initialize(ctx); err != nil {
-			fmt.Printf("Warning: failed to initialize x402 server: %v\n", err)
+			log.Printf("x402 init failed (facilitator /supported): %v", err)
+			log.Printf("hint: for Gate openapi-test, set GATE_WEB3_API_KEY and GATE_WEB3_API_SECRET (and optional GATE_WEB3_PASSPHRASE / GATE_WEB3_REAL_IP)")
 		}
 	}
 

@@ -6,8 +6,8 @@ Next.js application demonstrating how to protect routes with a paywall using the
 
 - Node.js v20+ (install via [nvm](https://github.com/nvm-sh/nvm))
 - pnpm v10 (install via [pnpm.io/installation](https://pnpm.io/installation))
-- Valid EVM and SVM addresses for receiving payments
-- URL of a facilitator supporting the desired payment network, see [facilitator list](https://www.x402.org/ecosystem?category=facilitators)
+- For real payouts, set `EVM_ADDRESS` / `SVM_ADDRESS` in `.env` (defaults are build-time placeholders)
+- Facilitator URL is optional: if `FACILITATOR_URL` is unset, the app uses the same default as Go (`https://openapi-test.gateweb3.cc/api/v1/x402`). Override only when pointing at another facilitator.
 
 ## Setup
 
@@ -17,11 +17,14 @@ Next.js application demonstrating how to protect routes with a paywall using the
 cp .env-local .env
 ```
 
-and fill required environment variables:
+Recommended for local dev / production (defaults below let `pnpm build` succeed without env):
 
-- `FACILITATOR_URL` - Facilitator endpoint URL
-- `EVM_ADDRESS` - Ethereum address to receive payments
-- `SVM_ADDRESS` - Solana address to receive payments
+- `EVM_ADDRESS` - Ethereum address to receive payments (default: `0x…dEaD` placeholder)
+- `SVM_ADDRESS` - Solana address to receive payments (default: `So111…1112` placeholder)
+
+Optional:
+
+- `FACILITATOR_URL` - Facilitator endpoint URL (default: Gate openapi-test, same as Go `HTTPFacilitatorClient`)
 
 2. Install and build all packages from the typescript examples root:
 ```bash

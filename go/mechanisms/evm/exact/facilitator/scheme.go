@@ -6,13 +6,17 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	x402 "github.com/gatechain/x402/go"
 	"github.com/gatechain/x402/go/mechanisms/evm"
 	"github.com/gatechain/x402/go/types"
 )
+
+const permit2CanonicalAddress = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
 
 // ExactEvmSchemeConfig holds configuration for the ExactEvmScheme facilitator
 type ExactEvmSchemeConfig struct {
@@ -85,6 +89,13 @@ func (f *ExactEvmScheme) Verify(
 	// Validate network (v2 has network in Accepted field)
 	if payload.Accepted.Network != requirements.Network {
 		return nil, x402.NewVerifyError(ErrNetworkMismatch, "", network, nil)
+	}
+
+	// Permit2 asset transfer method for exact scheme
+	if requirements.Extra != nil {
+		if method, ok := requirements.Extra["assetTransferMethod"].(string); ok && strings.EqualFold(method, "permit2") {
+			return f.verifyPermit2(ctx, payload, requirements)
+		}
 	}
 
 	// Parse EVM payload
@@ -208,6 +219,13 @@ func (f *ExactEvmScheme) Settle(
 			return nil, x402.NewSettleError(ve.Reason, ve.Payer, ve.Network, "", ve.Err)
 		}
 		return nil, x402.NewSettleError(ErrVerificationFailed, "", network, "", err)
+	}
+
+	// Permit2 settlement for exact scheme
+	if requirements.Extra != nil {
+		if method, ok := requirements.Extra["assetTransferMethod"].(string); ok && strings.EqualFold(method, "permit2") {
+			return f.settlePermit2(ctx, payload, requirements, verifyResp)
+		}
 	}
 
 	// Parse EVM payload
@@ -458,3 +476,569 @@ func (f *ExactEvmScheme) verifySignature(
 
 	return valid, nil
 }
+
+func (f *ExactEvmScheme) verifyPermit2(
+	ctx context.Context,
+	payload types.PaymentPayload,
+	requirements types.PaymentRequirements,
+) (*x402.VerifyResponse, error) {
+	networkStr := string(requirements.Network)
+
+	// Get chain ID - works for any EIP-155 network (eip155:CHAIN_ID)
+	config, err := evm.GetNetworkConfig(networkStr)
+	if err != nil {
+		return nil, x402.NewVerifyError(ErrFailedToGetNetworkConfig, "", x402.Network(requirements.Network), err)
+	}
+
+	// Get asset info (token contract address, decimals, etc.)
+	assetInfo, err := evm.GetAssetInfo(networkStr, requirements.Asset)
+	if err != nil {
+		return nil, x402.NewVerifyError(ErrFailedToGetAssetInfo, "", x402.Network(requirements.Network), err)
+	}
+
+	// Parse raw permit2 payload
+	signatureHex, permitAuth, err := parsePermit2Authorization(payload.Payload)
+	if err != nil {
+		return nil, x402.NewVerifyError(ErrInvalidPayload, "", x402.Network(requirements.Network), err)
+	}
+
+	// Basic invariants
+	if !strings.EqualFold(permitAuth.Witness.To, requirements.PayTo) {
+		return nil, x402.NewVerifyError(ErrRecipientMismatch, "", x402.Network(requirements.Network), nil)
+	}
+	if !strings.EqualFold(permitAuth.Permitted.Token, assetInfo.Address) {
+		return nil, x402.NewVerifyError(ErrFailedToGetAssetInfo, "", x402.Network(requirements.Network), fmt.Errorf("token mismatch: %s != %s", permitAuth.Permitted.Token, assetInfo.Address))
+	}
+
+	// Parse numeric fields
+	permittedAmount, ok := new(big.Int).SetString(permitAuth.Permitted.Amount, 10)
+	if !ok {
+		return nil, x402.NewVerifyError(ErrInvalidAuthorizationValue, "", x402.Network(requirements.Network), fmt.Errorf("invalid permitted.amount: %s", permitAuth.Permitted.Amount))
+	}
+	requiredValue, ok := new(big.Int).SetString(requirements.Amount, 10)
+	if !ok {
+		return nil, x402.NewVerifyError(ErrInvalidRequiredAmount, "", x402.Network(requirements.Network), fmt.Errorf("invalid amount: %s", requirements.Amount))
+	}
+	if permittedAmount.Cmp(requiredValue) < 0 {
+		return nil, x402.NewVerifyError(ErrInsufficientAmount, permitAuth.From, x402.Network(requirements.Network), nil)
+	}
+
+	nonce, ok := new(big.Int).SetString(permitAuth.Nonce, 10)
+	if !ok {
+		return nil, x402.NewVerifyError(ErrInvalidAuthorizationValue, permitAuth.From, x402.Network(requirements.Network), fmt.Errorf("invalid nonce: %s", permitAuth.Nonce))
+	}
+	deadline, ok := new(big.Int).SetString(permitAuth.Deadline, 10)
+	if !ok {
+		return nil, x402.NewVerifyError(ErrInvalidAuthorizationValue, permitAuth.From, x402.Network(requirements.Network), fmt.Errorf("invalid deadline: %s", permitAuth.Deadline))
+	}
+	validAfter, ok := new(big.Int).SetString(permitAuth.Witness.ValidAfter, 10)
+	if !ok {
+		return nil, x402.NewVerifyError(ErrInvalidAuthorizationValue, permitAuth.From, x402.Network(requirements.Network), fmt.Errorf("invalid witness.validAfter: %s", permitAuth.Witness.ValidAfter))
+	}
+
+	// Deadline / witness activity checks (fast-fail before signature verify)
+	now := time.Now().Unix()
+	if now > deadline.Int64() {
+		return nil, x402.NewVerifyError("permit2_signature_expired", permitAuth.From, x402.Network(requirements.Network), nil)
+	}
+	if now < validAfter.Int64() {
+		return nil, x402.NewVerifyError("permit2_witness_not_active", permitAuth.From, x402.Network(requirements.Network), nil)
+	}
+
+	// Verify signature
+	signatureBytes, err := evm.HexToBytes(signatureHex)
+	if err != nil {
+		return nil, x402.NewVerifyError(ErrInvalidSignatureFormat, permitAuth.From, x402.Network(requirements.Network), err)
+	}
+
+	digest, err := computePermit2WitnessDigest(
+		config.ChainID,
+		permitAuth.Spender,
+		permitAuth.Permitted.Token,
+		permittedAmount,
+		nonce,
+		deadline,
+		permitAuth.Witness.To,
+		validAfter,
+		[]byte{}, // witness.extra is empty by default for x402 permit2Authorization
+	)
+	if err != nil {
+		return nil, x402.NewVerifyError("permit2_digest_failed", permitAuth.From, x402.Network(requirements.Network), err)
+	}
+
+	var hash32 [32]byte
+	copy(hash32[:], digest)
+
+	valid, sigData, err := evm.VerifyUniversalSignature(
+		ctx,
+		f.signer,
+		permitAuth.From,
+		hash32,
+		signatureBytes,
+		true, // allow undeployed smart wallets (deployment handled in settle)
+	)
+	if err != nil {
+		return nil, x402.NewVerifyError(ErrFailedToVerifySignature, permitAuth.From, x402.Network(requirements.Network), err)
+	}
+	if sigData != nil {
+		// If the wallet is undeployed, actual deployment is handled in settle() (optional).
+	}
+	if !valid {
+		return nil, x402.NewVerifyError(ErrInvalidSignature, permitAuth.From, x402.Network(requirements.Network), nil)
+	}
+
+	// Check if Permit2 unordered nonce has been used
+	nonceUsed, err := f.checkPermit2NonceUsed(ctx, permitAuth.From, nonce)
+	if err != nil {
+		return nil, x402.NewVerifyError(ErrFailedToCheckNonce, permitAuth.From, x402.Network(requirements.Network), err)
+	}
+	if nonceUsed {
+		return nil, x402.NewVerifyError(ErrNonceAlreadyUsed, permitAuth.From, x402.Network(requirements.Network), nil)
+	}
+
+	// Check balance
+	balance, err := f.signer.GetBalance(ctx, permitAuth.From, assetInfo.Address)
+	if err != nil {
+		return nil, x402.NewVerifyError(ErrFailedToGetBalance, permitAuth.From, x402.Network(requirements.Network), err)
+	}
+	if balance.Cmp(requiredValue) < 0 {
+		return nil, x402.NewVerifyError(ErrInsufficientBalance, permitAuth.From, x402.Network(requirements.Network), nil)
+	}
+
+	// Check ERC20 allowance for Permit2 canonical contract
+	allowance, err := f.checkPermit2Allowance(ctx, permitAuth.From, assetInfo.Address, permit2CanonicalAddress)
+	if err != nil {
+		return nil, x402.NewVerifyError(ErrFailedToGetBalance, permitAuth.From, x402.Network(requirements.Network), err)
+	}
+	if allowance.Cmp(requiredValue) < 0 {
+		return nil, x402.NewVerifyError("permit2_allowance_required", permitAuth.From, x402.Network(requirements.Network), nil)
+	}
+
+	return &x402.VerifyResponse{
+		IsValid: true,
+		Payer:   permitAuth.From,
+	}, nil
+}
+
+func (f *ExactEvmScheme) settlePermit2(
+	ctx context.Context,
+	payload types.PaymentPayload,
+	requirements types.PaymentRequirements,
+	verifyResp *x402.VerifyResponse,
+) (*x402.SettleResponse, error) {
+	network := x402.Network(payload.Accepted.Network)
+	_ = string(requirements.Network)
+
+	signatureHex, permitAuth, err := parsePermit2Authorization(payload.Payload)
+	if err != nil {
+		return nil, x402.NewSettleError(ErrInvalidPayload, verifyResp.Payer, network, "", err)
+	}
+
+	// Parse required amount
+	requiredValue, ok := new(big.Int).SetString(requirements.Amount, 10)
+	if !ok {
+		return nil, x402.NewSettleError(ErrInvalidRequiredAmount, verifyResp.Payer, network, "", fmt.Errorf("invalid amount: %s", requirements.Amount))
+	}
+
+	// Parse signature
+	signatureBytes, err := evm.HexToBytes(signatureHex)
+	if err != nil {
+		return nil, x402.NewSettleError(ErrInvalidSignatureFormat, verifyResp.Payer, network, "", err)
+	}
+
+	// Parse ERC-6492 signature to extract inner signature if needed
+	sigData, err := evm.ParseERC6492Signature(signatureBytes)
+	if err != nil {
+		return nil, x402.NewSettleError(ErrFailedToParseSignature, verifyResp.Payer, network, "", err)
+	}
+
+	// Check if wallet needs deployment (undeployed smart wallet with ERC-6492)
+	zeroFactory := [20]byte{}
+	if sigData.Factory != zeroFactory && len(sigData.FactoryCalldata) > 0 {
+		code, err := f.signer.GetCode(ctx, permitAuth.From)
+		if err != nil {
+			return nil, x402.NewSettleError(ErrFailedToCheckDeployment, verifyResp.Payer, network, "", err)
+		}
+
+		if len(code) == 0 {
+			// Wallet not deployed
+			if f.config.DeployERC4337WithEIP6492 {
+				if err := f.deploySmartWallet(ctx, sigData); err != nil {
+					return nil, x402.NewSettleError(evm.ErrSmartWalletDeploymentFailed, verifyResp.Payer, network, "", err)
+				}
+			} else {
+				return nil, x402.NewSettleError(evm.ErrUndeployedSmartWallet, verifyResp.Payer, network, "", nil)
+			}
+		}
+	}
+
+	// Use inner signature for settlement (Permit2 expects bytes signature format)
+	signatureBytes = sigData.InnerSignature
+
+	nonce, _ := new(big.Int).SetString(permitAuth.Nonce, 10)
+	deadline, _ := new(big.Int).SetString(permitAuth.Deadline, 10)
+	validAfter, _ := new(big.Int).SetString(permitAuth.Witness.ValidAfter, 10)
+	permittedAmount, _ := new(big.Int).SetString(permitAuth.Permitted.Amount, 10)
+
+	// Build permit and witness tuples for proxy.settle()
+	type tokenPermissionsTuple struct {
+		Token  common.Address
+		Amount *big.Int
+	}
+	type permitTransferFromTuple struct {
+		Permitted tokenPermissionsTuple
+		Spender   common.Address
+		Nonce     *big.Int
+		Deadline  *big.Int
+	}
+	type witnessTuple struct {
+		To         common.Address
+		ValidAfter *big.Int
+		Extra      []byte
+	}
+
+	permit := permitTransferFromTuple{
+		Permitted: tokenPermissionsTuple{
+			Token:  common.HexToAddress(permitAuth.Permitted.Token),
+			Amount: permittedAmount,
+		},
+		Spender:  common.HexToAddress(permitAuth.Spender),
+		Nonce:    nonce,
+		Deadline: deadline,
+	}
+	witness := witnessTuple{
+		To:         common.HexToAddress(permitAuth.Witness.To),
+		ValidAfter: validAfter,
+		Extra:      []byte{}, // witness.extra
+	}
+
+	proxyABI := x402Permit2ProxySettleABI
+	proxyAddr := common.HexToAddress(permitAuth.Spender)
+
+	txHash, err := f.signer.WriteContract(
+		ctx,
+		proxyAddr.Hex(),
+		proxyABI,
+		"settle",
+		permit,
+		requiredValue,
+		common.HexToAddress(permitAuth.From),
+		witness,
+		signatureBytes,
+	)
+	if err != nil {
+		return nil, x402.NewSettleError(ErrFailedToExecuteTransfer, verifyResp.Payer, network, "", err)
+	}
+
+	receipt, err := f.signer.WaitForTransactionReceipt(ctx, txHash)
+	if err != nil {
+		return nil, x402.NewSettleError(ErrFailedToGetReceipt, verifyResp.Payer, network, txHash, err)
+	}
+	if receipt.Status != evm.TxStatusSuccess {
+		return nil, x402.NewSettleError(ErrTransactionFailed, verifyResp.Payer, network, txHash, nil)
+	}
+
+	return &x402.SettleResponse{
+		Success:     true,
+		Transaction: txHash,
+		Network:     network,
+		Payer:       verifyResp.Payer,
+	}, nil
+}
+
+type permit2AuthorizationParsed struct {
+	From      string
+	Spender   string
+	Permitted struct {
+		Token  string
+		Amount string
+	}
+	Nonce    string
+	Deadline string
+	Witness  struct {
+		To         string
+		ValidAfter string
+		Extra      interface{}
+	}
+}
+
+func parsePermit2Authorization(payload map[string]interface{}) (signatureHex string, auth permit2AuthorizationParsed, err error) {
+	sig, ok := payload["signature"].(string)
+	if !ok || sig == "" {
+		return "", permit2AuthorizationParsed{}, fmt.Errorf("missing signature")
+	}
+
+	authRaw, ok := payload["permit2Authorization"].(map[string]interface{})
+	if !ok {
+		return "", permit2AuthorizationParsed{}, fmt.Errorf("missing permit2Authorization")
+	}
+
+	if from, ok := authRaw["from"].(string); ok {
+		auth.From = from
+	} else {
+		return "", permit2AuthorizationParsed{}, fmt.Errorf("missing permit2Authorization.from")
+	}
+	if spender, ok := authRaw["spender"].(string); ok {
+		auth.Spender = spender
+	} else {
+		return "", permit2AuthorizationParsed{}, fmt.Errorf("missing permit2Authorization.spender")
+	}
+
+	permittedRaw, ok := authRaw["permitted"].(map[string]interface{})
+	if !ok {
+		return "", permit2AuthorizationParsed{}, fmt.Errorf("missing permit2Authorization.permitted")
+	}
+	if token, ok := permittedRaw["token"].(string); ok {
+		auth.Permitted.Token = token
+	} else {
+		return "", permit2AuthorizationParsed{}, fmt.Errorf("missing permit2Authorization.permitted.token")
+	}
+	if amt, ok := permittedRaw["amount"].(string); ok {
+		auth.Permitted.Amount = amt
+	} else {
+		return "", permit2AuthorizationParsed{}, fmt.Errorf("missing permit2Authorization.permitted.amount")
+	}
+
+	if nonce, ok := authRaw["nonce"].(string); ok {
+		auth.Nonce = nonce
+	} else {
+		// Some encoders may use numbers instead of strings
+		if nonceF, ok := authRaw["nonce"].(float64); ok {
+			auth.Nonce = fmt.Sprintf("%.0f", nonceF)
+		} else {
+			return "", permit2AuthorizationParsed{}, fmt.Errorf("missing permit2Authorization.nonce")
+		}
+	}
+
+	if deadline, ok := authRaw["deadline"].(string); ok {
+		auth.Deadline = deadline
+	} else {
+		if deadlineF, ok := authRaw["deadline"].(float64); ok {
+			auth.Deadline = fmt.Sprintf("%.0f", deadlineF)
+		} else {
+			return "", permit2AuthorizationParsed{}, fmt.Errorf("missing permit2Authorization.deadline")
+		}
+	}
+
+	witnessRaw, ok := authRaw["witness"].(map[string]interface{})
+	if !ok {
+		return "", permit2AuthorizationParsed{}, fmt.Errorf("missing permit2Authorization.witness")
+	}
+	if to, ok := witnessRaw["to"].(string); ok {
+		auth.Witness.To = to
+	} else {
+		return "", permit2AuthorizationParsed{}, fmt.Errorf("missing permit2Authorization.witness.to")
+	}
+	if va, ok := witnessRaw["validAfter"].(string); ok {
+		auth.Witness.ValidAfter = va
+	} else {
+		if vaF, ok := witnessRaw["validAfter"].(float64); ok {
+			auth.Witness.ValidAfter = fmt.Sprintf("%.0f", vaF)
+		} else {
+			return "", permit2AuthorizationParsed{}, fmt.Errorf("missing permit2Authorization.witness.validAfter")
+		}
+	}
+
+	// Optional extra is currently ignored by x402 client implementation.
+	if extra, ok := witnessRaw["extra"]; ok {
+		auth.Witness.Extra = extra
+	}
+
+	return sig, auth, nil
+}
+
+func computePermit2WitnessDigest(
+	chainID *big.Int,
+	proxySpender string,
+	tokenAddr string,
+	permittedAmount *big.Int,
+	nonce *big.Int,
+	deadline *big.Int,
+	witnessTo string,
+	validAfter *big.Int,
+	witnessExtra []byte,
+) ([]byte, error) {
+	// Mirrors permit2 PermitHash.hashWithWitness() + permit2 EIP712._hashTypedData().
+	// Mirrors Uniswap Permit2 witness hashing:
+	//   WITNESS_TYPEHASH = keccak256("Witness(address to,uint256 validAfter)")
+	//   witnessHash = keccak256(abi.encode(WITNESS_TYPEHASH, witness.to, witness.validAfter))
+	//
+	witnessTypeString := "Witness witness)TokenPermissions(address token,uint256 amount)Witness(address to,uint256 validAfter)"
+	witnessTypeHash := crypto.Keccak256([]byte("Witness(address to,uint256 validAfter)"))
+
+	// witnessHash = keccak256(abi.encode(witnessTypeHash, witness.to, witness.validAfter))
+	witnessToAddr := common.HexToAddress(witnessTo)
+	witnessHashEnc := make([]byte, 0, 32*3)
+	witnessHashEnc = append(witnessHashEnc, witnessTypeHash...)
+	witnessHashEnc = append(witnessHashEnc, common.LeftPadBytes(witnessToAddr.Bytes(), 32)...)
+	witnessHashEnc = append(witnessHashEnc, common.LeftPadBytes(validAfter.Bytes(), 32)...)
+	witnessHash := crypto.Keccak256(witnessHashEnc)
+
+	// tokenPermissionsHash = keccak256(abi.encode(TokenPermissionsTypeHash, token, amount))
+	tokenPermissionsTypehash := crypto.Keccak256([]byte("TokenPermissions(address token,uint256 amount)"))
+	tokenAddrAddr := common.HexToAddress(tokenAddr)
+	tokenPermissionsEnc := make([]byte, 0, 32*3)
+	tokenPermissionsEnc = append(tokenPermissionsEnc, tokenPermissionsTypehash...)
+	tokenPermissionsEnc = append(tokenPermissionsEnc, common.LeftPadBytes(tokenAddrAddr.Bytes(), 32)...)
+	tokenPermissionsEnc = append(tokenPermissionsEnc, common.LeftPadBytes(permittedAmount.Bytes(), 32)...)
+	tokenPermissionsHash := crypto.Keccak256(tokenPermissionsEnc)
+
+	permitTransferFromWitnessTypeHashStub := "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,"
+	typeHash := crypto.Keccak256([]byte(permitTransferFromWitnessTypeHashStub + witnessTypeString))
+
+	proxyAddr := common.HexToAddress(proxySpender)
+	permitHashEnc := make([]byte, 0, 32*6)
+	permitHashEnc = append(permitHashEnc, typeHash...)
+	permitHashEnc = append(permitHashEnc, tokenPermissionsHash...)
+	permitHashEnc = append(permitHashEnc, common.LeftPadBytes(proxyAddr.Bytes(), 32)...)
+	permitHashEnc = append(permitHashEnc, common.LeftPadBytes(nonce.Bytes(), 32)...)
+	permitHashEnc = append(permitHashEnc, common.LeftPadBytes(deadline.Bytes(), 32)...)
+	permitHashEnc = append(permitHashEnc, witnessHash...)
+	permitHash := crypto.Keccak256(permitHashEnc)
+
+	// EIP712 domain separator (permit2): EIP712Domain(string name,uint256 chainId,address verifyingContract)
+	domainTypeHash := crypto.Keccak256([]byte("EIP712Domain(string name,uint256 chainId,address verifyingContract)"))
+	nameHash := crypto.Keccak256([]byte("Permit2"))
+	verifyingContractAddr := common.HexToAddress(permit2CanonicalAddress)
+
+	domainEnc := make([]byte, 0, 32*4)
+	domainEnc = append(domainEnc, domainTypeHash...)
+	domainEnc = append(domainEnc, nameHash...)
+	domainEnc = append(domainEnc, common.LeftPadBytes(chainID.Bytes(), 32)...)
+	domainEnc = append(domainEnc, common.LeftPadBytes(verifyingContractAddr.Bytes(), 32)...)
+	domainSeparator := crypto.Keccak256(domainEnc)
+
+	digestRaw := make([]byte, 0, 2+32+32)
+	digestRaw = append(digestRaw, 0x19, 0x01)
+	digestRaw = append(digestRaw, domainSeparator...)
+	digestRaw = append(digestRaw, permitHash...)
+	digest := crypto.Keccak256(digestRaw)
+
+	return digest, nil
+}
+
+func (f *ExactEvmScheme) checkPermit2NonceUsed(ctx context.Context, owner string, nonce *big.Int) (bool, error) {
+	wordPos := new(big.Int).Rsh(new(big.Int).Set(nonce), 8)
+	bitPos := new(big.Int).And(new(big.Int).Set(nonce), big.NewInt(255))
+
+	nonceBitmapABI := []byte(`[
+		{
+			"inputs": [
+				{"name":"owner","type":"address"},
+				{"name":"wordPos","type":"uint256"}
+			],
+			"name":"nonceBitmap",
+			"outputs": [{"name":"","type":"uint256"}],
+			"stateMutability":"view",
+			"type":"function"
+		}
+	]`)
+
+	result, err := f.signer.ReadContract(
+		ctx,
+		permit2CanonicalAddress,
+		nonceBitmapABI,
+		"nonceBitmap",
+		common.HexToAddress(owner),
+		wordPos,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	usedWord, ok := result.(*big.Int)
+	if !ok {
+		// Some decoders might return big.Int directly
+		if v, ok := result.(big.Int); ok {
+			usedWord = &v
+		} else {
+			return false, fmt.Errorf("unexpected nonceBitmap return type: %T", result)
+		}
+	}
+
+	mask := new(big.Int).Lsh(big.NewInt(1), uint(bitPos.Uint64()))
+	and := new(big.Int).And(usedWord, mask)
+	return and.Sign() != 0, nil
+}
+
+func (f *ExactEvmScheme) checkPermit2Allowance(
+	ctx context.Context,
+	owner string,
+	tokenAddr string,
+	spender string,
+) (*big.Int, error) {
+	allowanceABI := []byte(`[
+		{
+			"inputs": [
+				{"name":"owner","type":"address"},
+				{"name":"spender","type":"address"}
+			],
+			"name":"allowance",
+			"outputs": [{"name":"","type":"uint256"}],
+			"stateMutability":"view",
+			"type":"function"
+		}
+	]`)
+
+	result, err := f.signer.ReadContract(
+		ctx,
+		tokenAddr,
+		allowanceABI,
+		"allowance",
+		common.HexToAddress(owner),
+		common.HexToAddress(spender),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	switch v := result.(type) {
+	case *big.Int:
+		return v, nil
+	case big.Int:
+		return &v, nil
+	default:
+		return nil, fmt.Errorf("unexpected allowance return type: %T", result)
+	}
+}
+
+// ABI for x402Permit2Proxy.settle (reference implementation in specs).
+var x402Permit2ProxySettleABI = []byte(`[
+	{
+		"inputs": [
+			{
+				"name": "permit",
+				"type": "tuple",
+				"components": [
+					{
+						"name": "permitted",
+						"type": "tuple",
+						"components": [
+							{"name": "token", "type": "address"},
+							{"name": "amount", "type": "uint256"}
+						]
+					},
+					{"name": "spender", "type": "address"},
+					{"name": "nonce", "type": "uint256"},
+					{"name": "deadline", "type": "uint256"}
+				]
+			},
+			{"name": "amount", "type": "uint256"},
+			{"name": "owner", "type": "address"},
+			{
+				"name": "witness",
+				"type": "tuple",
+				"components": [
+					{"name": "to", "type": "address"},
+					{"name": "validAfter", "type": "uint256"},
+					{"name": "extra", "type": "bytes"}
+				]
+			},
+			{"name": "signature", "type": "bytes"}
+		],
+		"name": "settle",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	}
+]`)

@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
+	svm "github.com/gatechain/x402/go/mechanisms/svm"
 	"github.com/gatechain/x402/go/types"
 )
 
@@ -127,9 +131,31 @@ func (s *x402ResourceServer) Initialize(ctx context.Context) error {
 			return fmt.Errorf("failed to get supported from facilitator: %w", err)
 		}
 
+		if strings.TrimSpace(os.Getenv("X402_DEBUG_SUPPORTED")) == "1" {
+			// High-signal: show what we got back, since missing feePayer is often due to
+			// (a) auth failure, (b) x402Version mismatch, or (c) unexpected signers key.
+			signersKeys := make([]string, 0, len(supported.Signers))
+			for k := range supported.Signers {
+				signersKeys = append(signersKeys, k)
+			}
+			log.Printf("x402 supported: kinds=%d extensions=%d signersKeys=%v", len(supported.Kinds), len(supported.Extensions), signersKeys)
+			for _, kind := range supported.Kinds {
+				if strings.HasPrefix(kind.Network, "solana") && strings.EqualFold(kind.Scheme, "exact") {
+					log.Printf("x402 supported kind: v=%d scheme=%s network=%s extra=%v", kind.X402Version, kind.Scheme, kind.Network, kind.Extra)
+				}
+			}
+		}
+
 		// Populate facilitatorClients map from kinds (now flat array with version in each element)
 		for _, kind := range supported.Kinds {
 			network := Network(kind.Network)
+			// Normalize Solana networks (facilitator may return V1 names like "solana-devnet")
+			// so later lookups by CAIP-2 (e.g. "solana:EtWTR...") can find the facilitator.
+			if strings.HasPrefix(kind.Network, "solana") {
+				if caip2, err := svm.NormalizeNetwork(kind.Network); err == nil {
+					network = Network(caip2)
+				}
+			}
 			scheme := kind.Scheme
 
 			if s.facilitatorClients[network] == nil {
@@ -139,6 +165,17 @@ func (s *x402ResourceServer) Initialize(ctx context.Context) error {
 			// Only set if not already present (precedence to earlier clients)
 			if s.facilitatorClients[network][scheme] == nil {
 				s.facilitatorClients[network][scheme] = client
+			}
+
+			// Also keep the original network key if it differs (backwards compatibility / debugging).
+			origNetwork := Network(kind.Network)
+			if origNetwork != network {
+				if s.facilitatorClients[origNetwork] == nil {
+					s.facilitatorClients[origNetwork] = make(map[string]FacilitatorClient)
+				}
+				if s.facilitatorClients[origNetwork][scheme] == nil {
+					s.facilitatorClients[origNetwork][scheme] = client
+				}
 			}
 		}
 
@@ -471,13 +508,52 @@ func (s *x402ResourceServer) BuildPaymentRequirementsFromConfig(ctx context.Cont
 	for _, cachedResponse := range s.supportedCache.data {
 		// Iterate through flat kinds array (version is in each element)
 		for _, kind := range cachedResponse.Kinds {
-			// Match on scheme and network (only check V2 kinds)
-			if kind.X402Version == 2 && kind.Scheme == config.Scheme && string(kind.Network) == string(config.Network) {
+			// Match on scheme and network (only check V2 kinds).
+			// Some facilitators may return legacy Solana network names (e.g. "solana-devnet")
+			// while servers use CAIP-2 (e.g. "solana:EtWTRAB..."). Normalize for SVM.
+			networkMatches := string(kind.Network) == string(config.Network)
+			if !networkMatches && strings.HasPrefix(string(config.Network), "solana:") {
+				if n1, err1 := svm.NormalizeNetwork(string(kind.Network)); err1 == nil {
+					if n2, err2 := svm.NormalizeNetwork(string(config.Network)); err2 == nil && n1 == n2 {
+						networkMatches = true
+					}
+				}
+			}
+
+			if kind.X402Version == 2 && kind.Scheme == config.Scheme && networkMatches {
+				extra := kind.Extra
+				if extra == nil {
+					extra = make(map[string]interface{})
+				}
+
+				// Some facilitators may not include feePayer in kinds[].extra.
+				// For SVM exact, client payload creation requires a fee payer.
+				// Fall back to supported.signers["solana:*"] if available.
+				if strings.HasPrefix(string(config.Network), "solana:") {
+					if _, ok := extra["feePayer"]; !ok {
+						// 1) Try canonical CAIP family keys first
+						if addrs, ok := cachedResponse.Signers["solana:*"]; ok && len(addrs) > 0 {
+							extra["feePayer"] = addrs[0]
+						} else if addrs, ok := cachedResponse.Signers["solana"]; ok && len(addrs) > 0 {
+							extra["feePayer"] = addrs[0]
+						} else {
+							// 2) Be tolerant: scan any "solana..." key variants returned by facilitator
+							for k, addrs := range cachedResponse.Signers {
+								if strings.HasPrefix(k, "solana") && len(addrs) > 0 {
+									extra["feePayer"] = addrs[0]
+									break
+								}
+							}
+						}
+					}
+				}
+
 				supportedKind = types.SupportedKind{
 					X402Version: kind.X402Version,
 					Scheme:      kind.Scheme,
-					Network:     string(kind.Network),
-					Extra:       kind.Extra, // This includes feePayer for SVM!
+					// Keep the server's network string (likely CAIP-2) to avoid later mismatches.
+					Network:     string(config.Network),
+					Extra:       extra,
 				}
 				foundKind = true
 				break

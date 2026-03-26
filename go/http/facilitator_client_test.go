@@ -150,8 +150,8 @@ func TestHTTPFacilitatorClientVerify(t *testing.T) {
 
 	// Create test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/verify" {
-			t.Errorf("Expected path /verify, got %s", r.URL.Path)
+		if r.URL.Path != "/" {
+			t.Errorf("Expected path /, got %s", r.URL.Path)
 		}
 		if r.Method != "POST" {
 			t.Errorf("Expected POST, got %s", r.Method)
@@ -163,14 +163,25 @@ func TestHTTPFacilitatorClientVerify(t *testing.T) {
 			t.Fatalf("Failed to decode request: %v", err)
 		}
 
-		if requestBody["x402Version"].(float64) != 2 {
-			t.Error("Expected version 2 in request")
+		if requestBody["action"] != "x402.verify" {
+			t.Errorf("Expected action x402.verify, got %v", requestBody["action"])
+		}
+		params, _ := requestBody["params"].(map[string]interface{})
+		if params == nil {
+			t.Fatalf("Expected params in request")
+		}
+		if params["x402Version"].(float64) != 2 {
+			t.Error("Expected version 2 in params")
 		}
 
 		// Return success response
-		response := x402.VerifyResponse{
-			IsValid: true,
-			Payer:   "0xverifiedpayer",
+		response := facilitatorAPIResponse[x402.VerifyResponse]{
+			Code: 0,
+			Msg:  "",
+			Data: x402.VerifyResponse{
+				IsValid: true,
+				Payer:   "0xverifiedpayer",
+			},
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -221,16 +232,31 @@ func TestHTTPFacilitatorClientSettle(t *testing.T) {
 
 	// Create test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/settle" {
-			t.Errorf("Expected path /settle, got %s", r.URL.Path)
+		if r.URL.Path != "/" {
+			t.Errorf("Expected path /, got %s", r.URL.Path)
+		}
+		if r.Method != "POST" {
+			t.Errorf("Expected POST, got %s", r.Method)
+		}
+
+		var requestBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("Failed to decode request: %v", err)
+		}
+		if requestBody["action"] != "x402.settle" {
+			t.Errorf("Expected action x402.settle, got %v", requestBody["action"])
 		}
 
 		// Return success response
-		response := x402.SettleResponse{
-			Success:     true,
-			Transaction: "0xsettledtx",
-			Payer:       "0xpayer",
-			Network:     "eip155:1",
+		response := facilitatorAPIResponse[x402.SettleResponse]{
+			Code: 0,
+			Msg:  "",
+			Data: x402.SettleResponse{
+				Success:     true,
+				Transaction: "0xsettledtx",
+				Payer:       "0xpayer",
+				Network:     "eip155:1",
+			},
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -281,29 +307,41 @@ func TestHTTPFacilitatorClientGetSupported(t *testing.T) {
 
 	// Create test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/supported" {
-			t.Errorf("Expected path /supported, got %s", r.URL.Path)
+		if r.URL.Path != "/" {
+			t.Errorf("Expected path /, got %s", r.URL.Path)
 		}
-		if r.Method != "GET" {
-			t.Errorf("Expected GET, got %s", r.Method)
+		if r.Method != "POST" {
+			t.Errorf("Expected POST, got %s", r.Method)
 		}
 
-		// Return supported response
-		response := x402.SupportedResponse{
-			Kinds: []x402.SupportedKind{
-				{
-					X402Version: 2,
-					Scheme:      "exact",
-					Network:     "eip155:1",
+		var requestBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("Failed to decode request: %v", err)
+		}
+		if requestBody["action"] != "x402.supported" {
+			t.Errorf("Expected action x402.supported, got %v", requestBody["action"])
+		}
+
+		// Return supported response (enveloped)
+		response := facilitatorAPIResponse[x402.SupportedResponse]{
+			Code: 0,
+			Msg:  "",
+			Data: x402.SupportedResponse{
+				Kinds: []x402.SupportedKind{
+					{
+						X402Version: 2,
+						Scheme:      "exact",
+						Network:     "eip155:1",
+					},
+					{
+						X402Version: 2,
+						Scheme:      "exact",
+						Network:     "eip155:8453",
+					},
 				},
-				{
-					X402Version: 2,
-					Scheme:      "exact",
-					Network:     "eip155:8453",
-				},
+				Extensions: []string{"bazaar"},
+				Signers:    make(map[string][]string),
 			},
-			Extensions: []string{"bazaar"},
-			Signers:    make(map[string][]string),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -343,13 +381,20 @@ func TestHTTPFacilitatorClientWithAuth(t *testing.T) {
 		}
 
 		// Return minimal response
-		switch r.URL.Path {
-		case "/verify":
-			_ = json.NewEncoder(w).Encode(x402.VerifyResponse{IsValid: true, Payer: "0xpayer"})
-		case "/settle":
-			_ = json.NewEncoder(w).Encode(x402.SettleResponse{Success: true, Transaction: "0xtx", Payer: "0xpayer", Network: "eip155:1"})
-		case "/supported":
-			_ = json.NewEncoder(w).Encode(x402.SupportedResponse{})
+		var requestBody map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&requestBody)
+		action, _ := requestBody["action"].(string)
+
+		w.Header().Set("Content-Type", "application/json")
+		switch action {
+		case "x402.verify":
+			_ = json.NewEncoder(w).Encode(facilitatorAPIResponse[x402.VerifyResponse]{Code: 0, Msg: "", Data: x402.VerifyResponse{IsValid: true, Payer: "0xpayer"}})
+		case "x402.settle":
+			_ = json.NewEncoder(w).Encode(facilitatorAPIResponse[x402.SettleResponse]{Code: 0, Msg: "", Data: x402.SettleResponse{Success: true, Transaction: "0xtx", Payer: "0xpayer", Network: "eip155:1"}})
+		case "x402.supported":
+			_ = json.NewEncoder(w).Encode(facilitatorAPIResponse[x402.SupportedResponse]{Code: 0, Msg: "", Data: x402.SupportedResponse{}})
+		default:
+			_ = json.NewEncoder(w).Encode(facilitatorAPIResponse[map[string]interface{}]{Code: 1, Msg: "unknown_action", Data: map[string]interface{}{}})
 		}
 	}))
 	defer server.Close()
@@ -456,22 +501,34 @@ func TestHTTPFacilitatorClient400WithValidResponse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 
-		switch r.URL.Path {
-		case "/verify":
-			response := x402.VerifyResponse{
-				IsValid:       false,
-				InvalidReason: "invalid_signature",
-				Payer:         "0xpayer",
-			}
-			_ = json.NewEncoder(w).Encode(response)
-		case "/settle":
-			response := x402.SettleResponse{
-				Success:     false,
-				ErrorReason: "insufficient_allowance",
-				Network:     "eip155:1",
-				Payer:       "0xpayer",
-			}
-			_ = json.NewEncoder(w).Encode(response)
+		var requestBody map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&requestBody)
+		action, _ := requestBody["action"].(string)
+
+		switch action {
+		case "x402.verify":
+			_ = json.NewEncoder(w).Encode(facilitatorAPIResponse[x402.VerifyResponse]{
+				Code: 1,
+				Msg:  "bad_request",
+				Data: x402.VerifyResponse{
+					IsValid:       false,
+					InvalidReason: "invalid_signature",
+					Payer:         "0xpayer",
+				},
+			})
+		case "x402.settle":
+			_ = json.NewEncoder(w).Encode(facilitatorAPIResponse[x402.SettleResponse]{
+				Code: 1,
+				Msg:  "bad_request",
+				Data: x402.SettleResponse{
+					Success:     false,
+					ErrorReason: "insufficient_allowance",
+					Network:     "eip155:1",
+					Payer:       "0xpayer",
+				},
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(facilitatorAPIResponse[map[string]interface{}]{Code: 1, Msg: "unknown_action", Data: map[string]interface{}{}})
 		}
 	}))
 	defer server.Close()

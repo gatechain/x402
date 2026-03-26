@@ -41,9 +41,8 @@ Configure the following variables in your `.env`:
 ### Required Variables
 
 ```bash
-# x402 Payment Configuration (required)
-FACILITATOR_URL=https://x402.org/facilitator
-EVM_ADDRESS=0xYourWalletAddress
+# x402 Payment Configuration (optional for `pnpm build`; default placeholder payTo in route.ts)
+# EVM_ADDRESS=0xYourWalletAddress
 
 # OnchainKit Configuration
 NEXT_PUBLIC_ONCHAINKIT_API_KEY=your_onchainkit_api_key_here
@@ -57,11 +56,18 @@ NEXT_PUBLIC_SPLASH_BACKGROUND_COLOR=#3b82f6
 NEXT_PUBLIC_ICON_URL=https://example.com/app-logo.png
 ```
 
+Optional:
+
+```bash
+# Override facilitator (default: Gate openapi-test, same as Go)
+# FACILITATOR_URL=https://your-facilitator.example/api/v1/x402
+```
+
 ### Getting API Keys
 
 1. **OnchainKit API Key**: Get from [OnchainKit](https://onchainkit.xyz)
 2. **EVM Address**: Your wallet address to receive payments
-3. **Facilitator URL**: Use a public facilitator or run your own
+3. **Facilitator URL**: Optional; omit to use the default Gate openapi-test URL (aligned with Go examples)
 
 ## How It Works
 
@@ -72,12 +78,16 @@ The `/api/protected` endpoint uses the `withX402` wrapper for payment protection
 ```typescript
 // app/api/protected/route.ts
 import { withX402 } from "@x402/next";
-import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
+import {
+  x402ResourceServer,
+  HTTPFacilitatorClient,
+  DEFAULT_FACILITATOR_URL,
+} from "@x402/core/server";
 import { registerExactEvmScheme } from "@x402/evm/exact/server";
 
-const facilitatorClient = new HTTPFacilitatorClient({
-  url: process.env.FACILITATOR_URL,
-});
+const facilitatorUrl =
+  (process.env.FACILITATOR_URL ?? "").trim() || DEFAULT_FACILITATOR_URL;
+const facilitatorClient = new HTTPFacilitatorClient({ url: facilitatorUrl });
 const server = new x402ResourceServer(facilitatorClient);
 registerExactEvmScheme(server);
 
@@ -217,12 +227,16 @@ Create a new route file (e.g., `app/api/premium/route.ts`) and use the `withX402
 // app/api/premium/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { withX402 } from "@x402/next";
-import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
+import {
+  x402ResourceServer,
+  HTTPFacilitatorClient,
+  DEFAULT_FACILITATOR_URL,
+} from "@x402/core/server";
 import { registerExactEvmScheme } from "@x402/evm/exact/server";
 
-const facilitatorClient = new HTTPFacilitatorClient({
-  url: process.env.FACILITATOR_URL,
-});
+const facilitatorUrl =
+  (process.env.FACILITATOR_URL ?? "").trim() || DEFAULT_FACILITATOR_URL;
+const facilitatorClient = new HTTPFacilitatorClient({ url: facilitatorUrl });
 const server = new x402ResourceServer(facilitatorClient);
 registerExactEvmScheme(server);
 
@@ -254,6 +268,11 @@ Network identifiers use [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/mai
 
 - `eip155:84532` - Base Sepolia
 - `eip155:8453` - Base Mainnet
+
+## Troubleshooting
+
+- **`pnpm build` / `turbo run build` 失败：要求 `FACILITATOR_URL` / `EVM_ADDRESS`**：`FACILITATOR_URL` 未设置时默认 openapi-test；`EVM_ADDRESS` 未设置时使用占位 `payTo`（见 `app/api/protected/route.ts`），便于 Turbo 无 env 构建。收款请在本机 `.env` 里配置真实地址。
+- **`[baseline-browser-mapping] The data in this module is over two months old`**：来自 Next.js 依赖里的浏览器基线数据提示，**一般不影响构建成功**；若需按官方建议更新，可在本包执行 `pnpm add -D baseline-browser-mapping@latest`（是否仍出现取决于上游包发布时间）。
 
 ## Resources
 

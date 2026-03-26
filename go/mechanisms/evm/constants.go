@@ -41,6 +41,8 @@ var (
 	ChainIDGateLayerTestnet = big.NewInt(10087) // Gate Layer Testnet chain ID (0x2767)
 	ChainIDEthereumMainnet  = big.NewInt(1)     // Ethereum mainnet chain ID
 	ChainIDBaseMainnet      = big.NewInt(8453)  // Base mainnet chain ID
+	ChainIDBSCMainnet       = big.NewInt(56)    // BNB Smart Chain mainnet
+	ChainIDBSCTestnet       = big.NewInt(97)    // BNB Smart Chain testnet (Chapel)
 
 	// Network configurations
 	// See DEFAULT_ASSET.md for guidelines on adding new chains
@@ -111,6 +113,44 @@ var (
 				Name:     "USDC",
 				Version:  "2",
 				Decimals: DefaultDecimals,
+			},
+		},
+		// BSC mainnet — Binance-Peg USDT (18 decimals)
+		"eip155:56": {
+			ChainID: ChainIDBSCMainnet,
+			DefaultAsset: AssetInfo{
+				Address:  "0x55d398326f99059fF775485246999027B3197955",
+				Name:     "USDT",
+				Version:  "1",
+				Decimals: 18,
+			},
+		},
+		"bsc": {
+			ChainID: ChainIDBSCMainnet,
+			DefaultAsset: AssetInfo{
+				Address:  "0x55d398326f99059fF775485246999027B3197955",
+				Name:     "USDT",
+				Version:  "1",
+				Decimals: 18,
+			},
+		},
+		// BSC testnet (Chapel) — common test USDT; override with env in demos if needed
+		"eip155:97": {
+			ChainID: ChainIDBSCTestnet,
+			DefaultAsset: AssetInfo{
+				Address:  "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd",
+				Name:     "USDT",
+				Version:  "1",
+				Decimals: 6,
+			},
+		},
+		"bsc-testnet": {
+			ChainID: ChainIDBSCTestnet,
+			DefaultAsset: AssetInfo{
+				Address:  "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd",
+				Name:     "USDT",
+				Version:  "1",
+				Decimals: 6,
 			},
 		},
 	}

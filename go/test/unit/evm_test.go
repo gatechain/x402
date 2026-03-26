@@ -37,6 +37,13 @@ func (m *mockClientEvmSigner) SignTypedData(
 	return sig, nil
 }
 
+func (m *mockClientEvmSigner) SignDigest(ctx context.Context, digest []byte) ([]byte, error) {
+	// Return a mock signature (65 bytes)
+	sig := make([]byte, 65)
+	sig[64] = 27
+	return sig, nil
+}
+
 // TestEVMVersionMismatch tests that V1 and V2 don't mix
 func TestEVMVersionMismatch(t *testing.T) {
 	t.Run("V1 Client with V2 Requirements Should Fail", func(t *testing.T) {

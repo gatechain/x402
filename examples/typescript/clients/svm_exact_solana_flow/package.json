@@ -1,0 +1,29 @@
+{
+  "name": "@x402/svm-exact-solana-client-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "pnpm exec tsx server_client.ts",
+    "dev": "pnpm exec tsx server_client.ts",
+    "lint": "eslint . --ext .ts --fix",
+    "lint:check": "eslint . --ext .ts",
+    "format": "prettier -c .prettierrc --write \"**/*.{ts,js,cjs,json,md}\"",
+    "format:check": "prettier -c .prettierrc --check \"**/*.{ts,js,cjs,json,md}\""
+  },
+  "dependencies": {
+    "@x402/core": "workspace:*",
+    "@x402/express": "workspace:*",
+    "@x402/svm": "workspace:*",
+    "express": "^4.18.2",
+    "viem": "^2.39.0"
+  },
+  "devDependencies": {
+    "@scure/base": "^1.2.6",
+    "@solana/kit": "^2.3.0",
+    "@types/express": "^5.0.1",
+    "eslint": "^9.24.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}
+

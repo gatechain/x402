@@ -1,7 +1,7 @@
 export { x402ResourceServer } from "./x402ResourceServer";
 export type { ResourceConfig, ResourceInfo } from "./x402ResourceServer";
 
-export { HTTPFacilitatorClient } from "../http/httpFacilitatorClient";
+export { HTTPFacilitatorClient, DEFAULT_FACILITATOR_URL } from "../http/httpFacilitatorClient";
 export type { FacilitatorClient, FacilitatorConfig } from "../http/httpFacilitatorClient";
 
 export { x402HTTPResourceServer, RouteConfigurationError } from "../http/x402HTTPResourceServer";

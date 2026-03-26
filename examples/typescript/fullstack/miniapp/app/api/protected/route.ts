@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withX402 } from "@x402/next";
-import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
+import {
+  x402ResourceServer,
+  HTTPFacilitatorClient,
+  DEFAULT_FACILITATOR_URL,
+} from "@x402/core/server";
 import { registerExactEvmScheme } from "@x402/evm/exact/server";
 
-const facilitatorUrl = process.env.FACILITATOR_URL;
-export const evmAddress = process.env.EVM_ADDRESS as `0x${string}`;
-
-if (!facilitatorUrl) {
-  console.error("❌ FACILITATOR_URL environment variable is required");
-  process.exit(1);
-}
-
-if (!evmAddress) {
-  console.error("❌ EVM_ADDRESS environment variable is required");
-  process.exit(1);
-}
+// Same default as Go / HTTPFacilitatorClient when unset.
+const facilitatorUrl =
+  (process.env.FACILITATOR_URL ?? "").trim() || DEFAULT_FACILITATOR_URL;
+// Default payTo for `next build` / Turbo when env is not injected (set `EVM_ADDRESS` in `.env` for real payouts).
+const DEFAULT_EXAMPLE_EVM_PAYTO =
+  "0x000000000000000000000000000000000000dEaD" as `0x${string}`;
+export const evmAddress = (
+  (process.env.EVM_ADDRESS ?? "").trim() || DEFAULT_EXAMPLE_EVM_PAYTO
+) as `0x${string}`;
 
 // Create HTTP facilitator client
 const facilitatorClient = new HTTPFacilitatorClient({ url: facilitatorUrl });

@@ -25,6 +25,7 @@
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
+    "baseline-browser-mapping": "2.10.10",
     "@eslint/js": "^9.24.0",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.13.4",
