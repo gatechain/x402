@@ -19,6 +19,10 @@ func GetEvmChainId(network string) (*big.Int, error) {
 		networkStr = "eip155:8453"
 	case "base-sepolia":
 		networkStr = "eip155:84532"
+	case "bsc", "bnb":
+		networkStr = "eip155:56"
+	case "bsc-testnet", "bnb-testnet":
+		networkStr = "eip155:97"
 	}
 
 	if config, ok := NetworkConfigs[networkStr]; ok {
@@ -154,6 +158,10 @@ func GetNetworkConfig(network string) (*NetworkConfig, error) {
 		networkStr = "eip155:8453"
 	case "base-sepolia":
 		networkStr = "eip155:84532"
+	case "bsc", "bnb":
+		networkStr = "eip155:56"
+	case "bsc-testnet", "bnb-testnet":
+		networkStr = "eip155:97"
 	}
 
 	// Check if we have a pre-configured network with default asset

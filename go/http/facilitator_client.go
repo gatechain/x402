@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -273,6 +274,10 @@ func (c *HTTPFacilitatorClient) GetSupported(ctx context.Context) (x402.Supporte
 		return x402.SupportedResponse{}, fmt.Errorf("failed to read supported response body: %w", err)
 	}
 
+	if strings.TrimSpace(os.Getenv("X402_DEBUG_SUPPORTED_RAW")) == "1" {
+		log.Printf("x402 supported raw response: http=%d body=%s", resp.StatusCode, string(responseBody))
+	}
+
 	var apiResp facilitatorAPIResponse[x402.SupportedResponse]
 	if err := json.Unmarshal(responseBody, &apiResp); err != nil {
 		return x402.SupportedResponse{}, fmt.Errorf("failed to decode supported response (%d): %s", resp.StatusCode, string(responseBody))
@@ -363,10 +368,10 @@ func (c *HTTPFacilitatorClient) verifyHTTP(ctx context.Context, version int, pay
 				apiResp.Data.InvalidReason,
 				apiResp.Data.Payer,
 				"",
-				fmt.Errorf("facilitator returned http=%d code=%d msg=%s", resp.StatusCode, apiResp.Code, apiResp.Msg),
+				fmt.Errorf("facilitator returned http=%d code=%d msg=%s body=%s", resp.StatusCode, apiResp.Code, apiResp.Msg, string(responseBody)),
 			)
 		}
-		return nil, fmt.Errorf("facilitator verify failed (http=%d, code=%d, msg=%s)", resp.StatusCode, apiResp.Code, apiResp.Msg)
+		return nil, fmt.Errorf("facilitator verify failed (http=%d, code=%d, msg=%s, body=%s)", resp.StatusCode, apiResp.Code, apiResp.Msg, string(responseBody))
 	}
 
 	return &apiResp.Data, nil
@@ -445,10 +450,10 @@ func (c *HTTPFacilitatorClient) settleHTTP(ctx context.Context, version int, pay
 				apiResp.Data.Payer,
 				apiResp.Data.Network,
 				apiResp.Data.Transaction,
-				fmt.Errorf("facilitator returned http=%d code=%d msg=%s", resp.StatusCode, apiResp.Code, apiResp.Msg),
+				fmt.Errorf("facilitator returned http=%d code=%d msg=%s body=%s", resp.StatusCode, apiResp.Code, apiResp.Msg, string(responseBody)),
 			)
 		}
-		return nil, fmt.Errorf("facilitator settle failed (http=%d, code=%d, msg=%s)", resp.StatusCode, apiResp.Code, apiResp.Msg)
+		return nil, fmt.Errorf("facilitator settle failed (http=%d, code=%d, msg=%s, body=%s)", resp.StatusCode, apiResp.Code, apiResp.Msg, string(responseBody))
 	}
 
 	return &apiResp.Data, nil

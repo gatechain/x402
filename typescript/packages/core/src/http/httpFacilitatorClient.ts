@@ -63,8 +63,12 @@ interface FacilitatorApiResponse<T> {
  * Signature = Base64(HMAC_SHA256(SK, PREHASH))
  * Uses env: GATE_WEB3_API_KEY, GATE_WEB3_API_SECRET, GATE_WEB3_PASSPHRASE, GATE_WEB3_REAL_IP.
  * Returns {} when not in Node or when AK/SK are missing.
+ * Uses dynamic `import("node:crypto")` so Gate signing works under ESM (e.g. `tsx`); `require` is undefined there and would silently skip auth.
  */
-function buildGateWeb3Headers(body: string, targetUri: string): Record<string, string> {
+async function buildGateWeb3Headers(
+  body: string,
+  targetUri: string,
+): Promise<Record<string, string>> {
   const getEnv = (key: string): string => {
     if (typeof process === "undefined" || !process.env) return "";
     const v = process.env[key];
@@ -76,7 +80,7 @@ function buildGateWeb3Headers(body: string, targetUri: string): Record<string, s
 
   let crypto: typeof import("node:crypto");
   try {
-    crypto = require("node:crypto") as typeof import("node:crypto");
+    crypto = await import("node:crypto");
   } catch {
     return {};
   }
@@ -125,7 +129,7 @@ export class HTTPFacilitatorClient implements FacilitatorClient {
     body: string,
     targetUri: string,
   ): Promise<Record<string, string>> {
-    const gateHeaders = buildGateWeb3Headers(body, targetUri);
+    const gateHeaders = await buildGateWeb3Headers(body, targetUri);
     if (this._createAuthHeaders) {
       const custom = await this._createAuthHeaders();
       const customForEndpoint = custom[endpoint] ?? {};
@@ -158,10 +162,53 @@ export class HTTPFacilitatorClient implements FacilitatorClient {
       body,
     });
 
-    const raw = (await response.json()) as FacilitatorApiResponse<T>;
-    const code = typeof raw?.code === "number" ? raw.code : -1;
-    const msg = typeof raw?.msg === "string" ? raw.msg : "";
-    const data = (raw?.data ?? {}) as T;
+    const rawText = await response.text();
+
+    // Gate OpenAPI typically returns { code, msg, data }, but be tolerant to:
+    // - msg vs message
+    // - data vs result
+    // - numeric fields encoded as strings
+    let parsed: unknown;
+    try {
+      parsed = rawText ? (JSON.parse(rawText) as unknown) : {};
+    } catch {
+      return {
+        status: response.status,
+        code: -1,
+        msg: `non-json facilitator response: ${rawText.slice(0, 300)}`,
+        data: {} as T,
+      };
+    }
+
+    const raw = parsed as Partial<
+      FacilitatorApiResponse<T> & { message?: string; result?: T; status?: number | string }
+    >;
+
+    const code =
+      typeof raw.code === "number"
+        ? raw.code
+        : typeof raw.code === "string"
+          ? Number(raw.code)
+          : typeof raw.status === "number"
+            ? raw.status
+            : typeof raw.status === "string"
+              ? Number(raw.status)
+              : -1;
+
+    let msg =
+      typeof raw.msg === "string"
+        ? raw.msg
+        : typeof raw.message === "string"
+          ? raw.message
+          : "";
+
+    const data = ((raw.data ?? raw.result) ?? {}) as T;
+
+    // Some Gate OpenAPI errors return a business `code` with empty msg/data.
+    // Keep the client debuggable by surfacing the raw response (truncated).
+    if ((!msg || msg.trim() === "") && code !== 0) {
+      msg = `raw=${rawText.slice(0, 300)}`;
+    }
 
     return { status: response.status, code, msg, data };
   }
@@ -183,9 +230,15 @@ export class HTTPFacilitatorClient implements FacilitatorClient {
     );
 
     if (status !== 200 || code !== 0) {
+      // Include Gate business error code/msg if invalidReason is not provided
+      const codeHint = code && code !== 0 ? `code=${code}` : "code=?";
+      const msgHint = msg ? ` msg=${msg}` : "";
       const resp: VerifyResponse = {
         isValid: false,
-        invalidReason: data.invalidReason ?? msg,
+        invalidReason:
+          data.invalidReason ||
+          msg ||
+          `facilitator verify failed (http=${status}, ${codeHint}${msgHint})`,
         payer: data.payer,
       };
       throw new VerifyError(status, resp);
@@ -213,7 +266,9 @@ export class HTTPFacilitatorClient implements FacilitatorClient {
     if (status !== 200 || code !== 0) {
       const resp: SettleResponse = {
         success: false,
-        errorReason: data.errorReason ?? msg,
+        errorReason:
+          (data.errorReason ?? msg) ||
+          `facilitator settle failed (http=${status}, code=${code || -1})`,
         payer: data.payer,
         transaction: data.transaction ?? "",
         network: (data.network ?? "eip155:0") as import("../types").Network,

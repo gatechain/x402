@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -230,6 +231,15 @@ func (s *ExactSvmScheme) EnhancePaymentRequirements(
 	// Initialize extra map if needed
 	if requirements.Extra == nil {
 		requirements.Extra = make(map[string]interface{})
+	}
+
+	// If facilitator does not provide feePayer in /supported (Gate openapi-test currently omits it),
+	// allow the resource server operator to inject it via env.
+	// This keeps the demo runnable while preserving the default "facilitator-sponsored fee payer" model.
+	if requirements.Extra["feePayer"] == nil {
+		if v := strings.TrimSpace(os.Getenv("SVM_FEE_PAYER")); v != "" {
+			requirements.Extra["feePayer"] = v
+		}
 	}
 
 	// Add feePayer from supportedKind.extra to payment requirements

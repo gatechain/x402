@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 	"github.com/gatechain/x402/go/mechanisms/evm"
 	"github.com/gatechain/x402/go/types"
 )
+
+const permit2CanonicalAddress = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
 
 // ExactEvmScheme implements the SchemeNetworkClient interface for EVM exact payments (V2)
 type ExactEvmScheme struct {
@@ -70,6 +73,13 @@ func (c *ExactEvmScheme) CreatePaymentPayload(
 	value, ok := new(big.Int).SetString(requirements.Amount, 10)
 	if !ok {
 		return types.PaymentPayload{}, fmt.Errorf(ErrInvalidAmount+": %s", requirements.Amount)
+	}
+
+	// Permit2 path for exact scheme (x402 exact + assetTransferMethod=permit2)
+	if requirements.Extra != nil {
+		if method, ok := requirements.Extra["assetTransferMethod"].(string); ok && strings.EqualFold(method, "permit2") {
+			return c.createPermit2Payload(ctx, requirements, chainID, assetInfo, value)
+		}
 	}
 
 	// Create nonce
@@ -280,4 +290,185 @@ func (c *ExactEvmScheme) signWithDomainSeparator(
 // signDigest signs a raw digest (used when we have DOMAIN_SEPARATOR from chain)
 func (c *ExactEvmScheme) signDigest(ctx context.Context, digest []byte) ([]byte, error) {
 	return c.signer.SignDigest(ctx, digest)
+}
+
+func (c *ExactEvmScheme) createPermit2Payload(
+	ctx context.Context,
+	requirements types.PaymentRequirements,
+	chainID *big.Int,
+	assetInfo *evm.AssetInfo,
+	amount *big.Int,
+) (types.PaymentPayload, error) {
+	spender := requirements.PayTo
+	if requirements.Extra != nil {
+		if v, ok := requirements.Extra["permit2Spender"].(string); ok && evm.IsValidAddress(v) {
+			spender = v
+		} else if v, ok := requirements.Extra["spender"].(string); ok && evm.IsValidAddress(v) {
+			spender = v
+		}
+	}
+	if !evm.IsValidAddress(spender) {
+		return types.PaymentPayload{}, fmt.Errorf("invalid permit2 spender: %s", spender)
+	}
+	if !evm.IsValidAddress(requirements.PayTo) {
+		return types.PaymentPayload{}, fmt.Errorf("invalid payTo: %s", requirements.PayTo)
+	}
+
+	nonce := big.NewInt(0)
+	deadline := big.NewInt(time.Now().Unix() + 3600)
+	validAfter := big.NewInt(0)
+	if requirements.Extra != nil {
+		if v, ok := extraBigInt(requirements.Extra, "permitNonce"); ok {
+			nonce = v
+		} else if v, ok := extraBigInt(requirements.Extra, "nonce"); ok {
+			nonce = v
+		}
+		if v, ok := extraBigInt(requirements.Extra, "deadline"); ok {
+			deadline = v
+		}
+		if v, ok := extraBigInt(requirements.Extra, "validAfter"); ok {
+			validAfter = v
+		}
+	}
+
+	// Signature must be valid for Permit2.permitWitnessTransferFrom().
+	// Permit2 uses a domain separator without EIP712 "version" field, so we can't rely on SignTypedData.
+	// Instead we compute the exact digest following PermitHash.sol + Permit2's EIP712 implementation.
+	//
+	// References:
+	// - Uniswap permit2 PermitHash.hashWithWitness()
+	// - Uniswap permit2 EIP712._hashTypedData()
+	//
+	// Permit2 witness type (matches x402-facilitator/examples/permit2_client default):
+	//   Witness witness
+	//   TokenPermissions(address token,uint256 amount)
+	//   Witness(address to,uint256 validAfter)
+	witnessTypeString := "Witness witness)TokenPermissions(address token,uint256 amount)Witness(address to,uint256 validAfter)"
+	witnessTypeHash := crypto.Keccak256([]byte("Witness(address to,uint256 validAfter)"))
+
+	// witnessHash = keccak256(abi.encode(witnessTypeHash, witness.to, witness.validAfter))
+	witnessTo := common.HexToAddress(requirements.PayTo)
+	witnessHashEnc := make([]byte, 0, 32*3)
+	witnessHashEnc = append(witnessHashEnc, witnessTypeHash...)
+	witnessHashEnc = append(witnessHashEnc, common.LeftPadBytes(witnessTo.Bytes(), 32)...)
+	witnessHashEnc = append(witnessHashEnc, common.LeftPadBytes(validAfter.Bytes(), 32)...)
+	witnessHash := crypto.Keccak256(witnessHashEnc)
+
+	// tokenPermissionsHash = keccak256(abi.encode(TOKEN_PERMISSIONS_TYPEHASH, token, amount))
+	tokenPermissionsTypehash := crypto.Keccak256([]byte("TokenPermissions(address token,uint256 amount)"))
+	tokenAddr := common.HexToAddress(assetInfo.Address)
+	tokenPermissionsEnc := make([]byte, 0, 32*3)
+	tokenPermissionsEnc = append(tokenPermissionsEnc, tokenPermissionsTypehash...)
+	tokenPermissionsEnc = append(tokenPermissionsEnc, common.LeftPadBytes(tokenAddr.Bytes(), 32)...)
+	tokenPermissionsEnc = append(tokenPermissionsEnc, common.LeftPadBytes(amount.Bytes(), 32)...)
+	tokenPermissionsHash := crypto.Keccak256(tokenPermissionsEnc)
+
+	// typeHash = keccak256(abi.encodePacked(PERMIT_TRANSFER_FROM_WITNESS_TYPEHASH_STUB, witnessTypeString))
+	permitTransferFromWitnessTypeHashStub := "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,"
+	typeHash := crypto.Keccak256([]byte(permitTransferFromWitnessTypeHashStub + witnessTypeString))
+
+	// Permit hash: keccak256(abi.encode(typeHash, tokenPermissionsHash, msg.sender, nonce, deadline, witnessHash))
+	//
+	// Here msg.sender is the external caller of permitWitnessTransferFrom on Permit2.
+	// For x402 this is the x402Permit2Proxy address, which is `spender` in permit2Authorization.
+	spenderAddr := common.HexToAddress(spender)
+	permitHashEnc := make([]byte, 0, 32*6)
+	permitHashEnc = append(permitHashEnc, typeHash...)
+	permitHashEnc = append(permitHashEnc, tokenPermissionsHash...)
+	permitHashEnc = append(permitHashEnc, common.LeftPadBytes(spenderAddr.Bytes(), 32)...)
+	permitHashEnc = append(permitHashEnc, common.LeftPadBytes(nonce.Bytes(), 32)...)
+	permitHashEnc = append(permitHashEnc, common.LeftPadBytes(deadline.Bytes(), 32)...)
+	permitHashEnc = append(permitHashEnc, witnessHash...)
+	permitHash := crypto.Keccak256(permitHashEnc)
+
+	// Domain separator:
+	// keccak256(abi.encode(EIP712DomainTypeHash, keccak256("Permit2"), chainId, verifyingContract))
+	// verifyingContract is the canonical Permit2 contract address.
+	domainTypeHash := crypto.Keccak256([]byte("EIP712Domain(string name,uint256 chainId,address verifyingContract)"))
+	nameHash := crypto.Keccak256([]byte("Permit2"))
+	verifyingContractAddr := common.HexToAddress(permit2CanonicalAddress)
+
+	domainEnc := make([]byte, 0, 32*4)
+	domainEnc = append(domainEnc, domainTypeHash...)
+	domainEnc = append(domainEnc, nameHash...)
+	domainEnc = append(domainEnc, common.LeftPadBytes(chainID.Bytes(), 32)...)
+	domainEnc = append(domainEnc, common.LeftPadBytes(verifyingContractAddr.Bytes(), 32)...)
+	domainSeparator := crypto.Keccak256(domainEnc)
+
+	// digest = keccak256(0x19 0x01 || domainSeparator || permitHash)
+	digestRaw := make([]byte, 0, 2+32+32)
+	digestRaw = append(digestRaw, 0x19, 0x01)
+	digestRaw = append(digestRaw, domainSeparator...)
+	digestRaw = append(digestRaw, permitHash...)
+	digest := crypto.Keccak256(digestRaw)
+
+	sig, err := c.signer.SignDigest(ctx, digest)
+	if err != nil {
+		return types.PaymentPayload{}, fmt.Errorf("failed to sign permit2 witness authorization: %w", err)
+	}
+
+	return types.PaymentPayload{
+		X402Version: 2,
+		Payload: map[string]interface{}{
+			"signature": evm.BytesToHex(sig),
+			"permit2Authorization": map[string]interface{}{
+				"from":    c.signer.Address(),
+				"spender": spender,
+				"permitted": map[string]interface{}{
+					"token":  assetInfo.Address,
+					"amount": amount.String(),
+				},
+				"nonce":    nonce.String(),
+				"deadline": deadline.String(),
+				"witness": map[string]interface{}{
+					"to":         requirements.PayTo,
+					"validAfter": validAfter.String(),
+				},
+			},
+		},
+	}, nil
+}
+
+func extraBigInt(extra map[string]interface{}, key string) (*big.Int, bool) {
+	raw, ok := extra[key]
+	if !ok || raw == nil {
+		return nil, false
+	}
+
+	switch v := raw.(type) {
+	case string:
+		bi, ok := new(big.Int).SetString(v, 10)
+		return bi, ok
+	case int:
+		return big.NewInt(int64(v)), true
+	case int32:
+		return big.NewInt(int64(v)), true
+	case int64:
+		return big.NewInt(v), true
+	case uint:
+		return new(big.Int).SetUint64(uint64(v)), true
+	case uint32:
+		return new(big.Int).SetUint64(uint64(v)), true
+	case uint64:
+		return new(big.Int).SetUint64(v), true
+	case float64:
+		if v == float64(int64(v)) {
+			return big.NewInt(int64(v)), true
+		}
+	case float32:
+		f := float64(v)
+		if f == float64(int64(f)) {
+			return big.NewInt(int64(f)), true
+		}
+	default:
+		if s, ok := raw.(fmt.Stringer); ok {
+			bi, ok := new(big.Int).SetString(s.String(), 10)
+			return bi, ok
+		}
+		if n, err := strconv.ParseInt(fmt.Sprintf("%v", raw), 10, 64); err == nil {
+			return big.NewInt(n), true
+		}
+	}
+
+	return nil, false
 }

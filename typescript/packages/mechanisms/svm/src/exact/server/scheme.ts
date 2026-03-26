@@ -93,13 +93,24 @@ export class ExactSvmScheme implements SchemeNetworkServer {
     // Mark unused parameters to satisfy linter
     void extensionKeys;
 
-    // Add feePayer from supportedKind.extra to payment requirements
-    // The facilitator provides its address as the fee payer for transaction fees
+    // Add feePayer for transaction fees.
+    //
+    // Gate openapi-test currently does NOT return `feePayer` (or `signers`) in /supported,
+    // so we must *not* overwrite an already-provided feePayer with `undefined`.
+    // Priority:
+    // 1) supportedKind.extra.feePayer (if present)
+    // 2) paymentRequirements.extra.feePayer (e.g. provided via price.extra)
+    // 3) env SVM_FEE_PAYER (demo fallback)
+    const feePayer =
+      (supportedKind.extra?.feePayer as string | undefined) ??
+      (paymentRequirements.extra?.feePayer as string | undefined) ??
+      (typeof process !== "undefined" ? (process.env.SVM_FEE_PAYER as string | undefined) : undefined);
+
     return Promise.resolve({
       ...paymentRequirements,
       extra: {
         ...paymentRequirements.extra,
-        feePayer: supportedKind.extra?.feePayer,
+        ...(feePayer ? { feePayer } : {}),
       },
     });
   }

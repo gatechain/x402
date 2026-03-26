@@ -25,13 +25,15 @@ export async function signDigestWithPrivateKey(
     throw new Error(`Digest must be 32 bytes, got ${msg.length}`);
   }
   const key = hexToBytes(privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`);
-  // prehash: false = digest is already the hash. @noble/secp256k1 v2 returns RecoveredSignature (object with r, s, recovery).
-  const sig = await signAsync(msg, key, { prehash: false });
+  // `msgh` is already the 32-byte hash (EIP-712 digest). Runtime returns a Signature with recovery bit.
+  // Some DTS resolutions incorrectly widen this to `Uint8Array`; keep a narrow structural type for `.dts` builds.
+  type NobleCompactSig = { toCompactRawBytes(): Uint8Array; recovery?: number };
+  const sig = (await signAsync(msg, key)) as unknown as NobleCompactSig;
   const compact = sig.toCompactRawBytes();
   if (compact.length !== 64) {
     throw new Error(`Expected 64-byte compact signature, got ${compact.length}`);
   }
-  const recovery = (sig as { recovery?: number }).recovery ?? 0;
+  const recovery = sig.recovery ?? 0;
   const v = 27 + (recovery & 1); // Ethereum v is 27 or 28
   const rHex = toHex(compact.slice(0, 32));
   const sHex = toHex(compact.slice(32, 64));
