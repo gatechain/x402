@@ -37,11 +37,13 @@ NetworkConfigs = map[string]NetworkConfig{
 | `Version` | EIP-712 domain version (must match the token's domain separator) |
 | `Decimals` | Token decimal places (typically 6 for USDC) |
 
-## Current Limitation
+## Current Status
 
-> ⚠️ **EIP-3009 Required**: Currently, only stablecoins implementing [EIP-3009](https://eips.ethereum.org/EIPS/eip-3009) (`transferWithAuthorization`) are supported.
+> ✅ **Default EVM exact flow** uses stablecoins implementing [EIP-3009](https://eips.ethereum.org/EIPS/eip-3009) (`transferWithAuthorization`).
 >
-> Generic ERC-20 support via EIP-2612/Permit2 is planned but not yet implemented.
+> ✅ **Permit2 exact flow** is available in dedicated integrations/examples.
+>
+> ⚠️ Generic ERC-20 coverage across all networks/assets is still evolving.
 
 ## Asset Selection Policy
 

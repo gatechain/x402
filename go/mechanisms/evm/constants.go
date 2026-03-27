@@ -52,8 +52,10 @@ var (
 	// - If the chain has officially endorsed a stablecoin, that asset should be used
 	// - If no official stance exists, the chain team should make the selection
 	//
-	// NOTE: Currently only EIP-3009 supporting stablecoins can be used.
-	// Generic ERC-20 support via EIP-2612/Permit2 is planned but not yet implemented.
+	// NOTE:
+	// - EIP-3009 stablecoins are supported as the default EVM exact flow.
+	// - Permit2-based exact flow is also supported in dedicated Permit2 integrations/examples.
+	// - Generic ERC-20 coverage across all networks/assets is still evolving.
 	NetworkConfigs = map[string]NetworkConfig{
 		// Gate Layer Testnet
 		"gatelayer_testnet": {
