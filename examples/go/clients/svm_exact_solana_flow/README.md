@@ -1,32 +1,32 @@
-# Go demo: SVM（Solana）exact 付款客户端
+# Go Demo: SVM (Solana) Exact Payment Client
 
-这个 demo 是一个 **x402 客户端**：先请求 `PAYMENT-REQUIRED`，再构造 Solana 交易并在请求头带 `PAYMENT-SIGNATURE` 重试。
+This demo is an **x402 client**: it first requests `PAYMENT-REQUIRED`, then builds a Solana transaction and retries with `PAYMENT-SIGNATURE`.
 
-## 前置
+## Prerequisites
 
-- 先启动资源服务器（例如本仓库的 `examples/go/servers/svm_exact_solana_flow`）
-- 准备一把 Solana devnet 钱包私钥（base58）并确保有测试币/对应代币余额
+- Start a resource server first (for example `examples/go/servers/svm_exact_solana_flow`)
+- Prepare a Solana devnet private key (base58) with enough SOL/tokens for testing
 
-## 运行
+## Run
 
 ```bash
 go run .
 ```
 
-默认请求 `http://localhost:4024/pay`。
+Default target: `http://localhost:4024/pay`.
 
-## 环境变量
+## Environment Variables
 
-- **SERVER_URL**: 默认 `http://localhost:4024/pay`
-- **SVM_NETWORK**: 默认 `solana-devnet`（也支持 CAIP-2：`solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1`）
-- **SVM_CLIENT_PRIVATE_KEY**: **必填**，Solana 私钥（base58）
+- **SERVER_URL**: Default `http://localhost:4024/pay`
+- **SVM_NETWORK**: Default `solana-devnet` (also supports CAIP-2, e.g. `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1`)
+- **SVM_CLIENT_PRIVATE_KEY**: **Required**, Solana private key (base58)
 
-## 你需要提供的代币信息（后续我来补齐）
+## Token Configuration Checklist
 
-你给我以下信息后，我会把 server/client 的默认配置、校验、以及 README 里的“如何换币/换网络”写完整：
+Provide the following values to finalize defaults and validation:
 
-- 目标网络（mainnet/devnet/testnet 的 CAIP-2）
-- 代币 mint 地址
-- decimals
-- 建议的默认 `PAYMENT_AMOUNT_ATOMIC`
+- Target network (mainnet/devnet/testnet in CAIP-2 form)
+- Token mint address
+- Token decimals
+- Recommended default `PAYMENT_AMOUNT_ATOMIC`
 

@@ -13,7 +13,7 @@ Flow:
 
 ## Environment variables
 
-- `FACILITATOR_URL` (必填：facilitator 基础地址，例如 `http://localhost:4022`)
+- `FACILITATOR_URL` (required: facilitator base URL, e.g. `http://localhost:4022`)
 - `EVM_PAYEE_ADDRESS` (merchant payTo / witness.to)
 - `PERMIT_SPENDER` (x402Permit2Proxy address)
 - `PERMIT_NONCE` (default `0`)

@@ -1,32 +1,38 @@
-# permit2 exact (BSC) one-click TS server+client
+# Permit2 Exact (BSC) One-Click TS Server + Client
 
-这个示例演示“server 返回 `402 + PAYMENT-REQUIRED` → client 生成 Permit2 签名 → 重试携带 `PAYMENT-SIGNATURE` → server settle”的完整流程。
+This example demonstrates the full flow:
+`server returns 402 + PAYMENT-REQUIRED` -> `client creates a Permit2 signature` -> `client retries with PAYMENT-SIGNATURE` -> `server settles`.
 
-与之前版本不同：现在 `pnpm start` 会在本进程里同时启动 TS 的受保护 server，并自动发起请求完成一次支付。
+Unlike older versions, `pnpm start` now launches the protected TS server and runs the client request in the same process.
 
-由于当前 TypeScript 的 `ExactEvmScheme` 尚未实现 `permit2`（只支持 EIP-3009），因此本示例在 client 侧 **手动构造 `permit2Authorization` + digest + signature**，并按 x402 v2 协议标准生成 `PAYMENT-SIGNATURE`。
+Because TypeScript `ExactEvmScheme` currently does not implement Permit2 directly (EIP-3009 only), this example **manually builds `permit2Authorization` + digest + signature** on the client side and sends a v2-compliant `PAYMENT-SIGNATURE`.
 
-## 依赖
+## Dependencies
 
-本示例会调用 Gate Web3 OpenAPI facilitator（默认 `https://openapi-test.gateweb3.cc/api/v1/x402`），因此需要你在环境变量里配置 Gate 的鉴权信息。
+This example calls the Gate Web3 OpenAPI facilitator (default: `https://openapi-test.gateweb3.cc/api/v1/x402`), so Gate authentication environment variables are required.
 
-## 环境变量
-- `EVM_PRIVATE_KEY`：payer EOA 私钥（用于签名 permit2 digest）
-- `EVM_PAYEE_ADDRESS`：payee/merchant 地址（用于 `witness.to` / `payTo`）
-- `GATE_WEB3_API_KEY`、`GATE_WEB3_API_SECRET`：**必填**。访问默认 facilitator（openapi-test）时用于 HMAC 签名；缺省会 `401 missing access key`，随后初始化报错看起来像「不支持 bsc」（与 Go 示例一致）
-- `GATE_WEB3_PASSPHRASE`、`GATE_WEB3_REAL_IP`：按你 Gate 控制台 / 文档要求可选配置
+## Environment Variables
 
-可选：
-- `FACILITATOR_URL`：facilitator URL（默认 openapi-test）
-- `PORT`：本地 server 端口（默认 `4023`）
-- `PERMIT_SPENDER`：permit2 proxy spender（默认使用本仓库 Go demo 的值）
-- `PERMIT_NONCE`、`WITNESS_VALID_AFTER`：默认 `0`
-- `PERMIT_DEADLINE`：默认 `当前时间+3600s`
-- `PAYMENT_AMOUNT`：默认 `100000000000000`（0.0001 USDT，18 decimals）
+- `EVM_PRIVATE_KEY`: Payer EOA private key (used to sign the Permit2 digest)
+- `EVM_PAYEE_ADDRESS`: Payee/merchant address (used for `witness.to` / `payTo`)
+- `GATE_WEB3_API_KEY`, `GATE_WEB3_API_SECRET`: **Required**. Used for HMAC signing against the default facilitator (openapi-test). If missing, you may see `401 missing access key`, followed by an initialization error that looks like unsupported BSC.
+- `GATE_WEB3_PASSPHRASE`, `GATE_WEB3_REAL_IP`: Optional, depending on your Gate console / docs configuration
 
-## 首次安装（必须）
+Optional:
 
-本目录属于 `examples/typescript` 的 pnpm workspace，**不能直接只在这个子目录装依赖**（否则没有 `node_modules`，会出现 `tsx: command not found`）。请先在 examples 根目录安装并编译 workspace 包（`@x402/*` 从 `dist` 导出）：
+- `FACILITATOR_URL`: Facilitator URL (default: openapi-test)
+- `PORT`: Local server port (default: `4023`)
+- `PERMIT_SPENDER`: Permit2 proxy spender (defaults to the value used in this repo's Go demo)
+- `PERMIT_NONCE`, `WITNESS_VALID_AFTER`: default `0`
+- `PERMIT_DEADLINE`: default `now + 3600s`
+- `PAYMENT_AMOUNT`: default `100000000000000` (0.0001 USDT, 18 decimals)
+
+## First-Time Setup (Required)
+
+This directory is part of the `examples/typescript` pnpm workspace.  
+**Do not install dependencies only inside this subdirectory** (otherwise `node_modules` will be missing and you may get `tsx: command not found`).
+
+Install and build from the examples root first (`@x402/*` packages are consumed from `dist`):
 
 ```bash
 cd examples/typescript
@@ -34,36 +40,39 @@ pnpm install
 pnpm build
 ```
 
-如果 `pnpm install` 报 `ERR_PNPM_OUTDATED_LOCKFILE`（lockfile 与 workspace 里某个 `package.json` 不一致），用：
+If `pnpm install` fails with `ERR_PNPM_OUTDATED_LOCKFILE`, run:
 
 ```bash
 pnpm install --no-frozen-lockfile
 ```
 
-## 运行
+## Run
 
-确保环境变量已配置好（尤其是 `EVM_PRIVATE_KEY` / `EVM_PAYEE_ADDRESS` / `GATE_WEB3_API_KEY` / `GATE_WEB3_API_SECRET`），然后：
+After setting environment variables (especially `EVM_PRIVATE_KEY`, `EVM_PAYEE_ADDRESS`, `GATE_WEB3_API_KEY`, `GATE_WEB3_API_SECRET`):
 
 ```bash
 cd examples/typescript/clients/permit2_exact_bsc_flow
 pnpm start
 ```
 
-运行时会自动：
-- 发起第一次请求获取 `PAYMENT-REQUIRED`
-- 生成 permit2 签名
-- 用 `PAYMENT-SIGNATURE` 重试
-- 打印 `PAYMENT-RESPONSE`（如果返回）
+The script will automatically:
 
-## 排错
+- Send the first request and read `PAYMENT-REQUIRED`
+- Build a Permit2 signature
+- Retry with `PAYMENT-SIGNATURE`
+- Print `PAYMENT-RESPONSE` (if present)
 
-若出现 `missing access key` 或 `Facilitator does not support scheme "exact" on network "bsc"`：先检查是否已 `export GATE_WEB3_API_KEY` / `GATE_WEB3_API_SECRET`；后者往往是前者的连锁误判，并非真的不支持 BSC。
+## Troubleshooting
 
-若 **shell 里已能 `echo` 出 AK/SK 仍报 `missing access key`**：请重新编译 `@x402/core`（`HTTPFacilitatorClient` 在 ESM/tsx 下不能用 `require('node:crypto')`，需更新到使用 `import('node:crypto')` 的版本）：
+If you see `missing access key` or `Facilitator does not support scheme "exact" on network "bsc"`:
+first verify that `GATE_WEB3_API_KEY` / `GATE_WEB3_API_SECRET` are exported. The latter message is often a chained symptom of missing credentials, not actual BSC unsupported behavior.
+
+If `echo` confirms AK/SK in your shell but you still get `missing access key`, rebuild `@x402/core`:
 
 ```bash
-cd examples/typescript && pnpm build --filter @x402/core
+cd examples/typescript
+pnpm build --filter @x402/core
 ```
 
-或全量 `pnpm build`。
+Or run full `pnpm build`.
 
