@@ -11,6 +11,38 @@
 
 ---
 
+## 第一步：扩充支持代币（网络 / Token / 地址）
+
+按你的要求，这里先只维护三列：**网络、Token、CA 地址（EVM 为合约地址；Solana 为 Mint）**。  
+另外把 **非 EIP-3009** 单独拆表。
+
+### 表 A：EIP-3009 代币（可走 EIP-3009 路径）
+
+| 网络 | Token | CA 地址 |
+|---|---|---|
+| ETH | USDT | `0xdac17f958d2ee523a2206206994597c13d831ec7` |
+| BSC | USDC | `0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d` |
+| BSC | USDT | `0x55d398326f99059ff775485246999027b3197955` |
+| BSC | USD1 | `0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d` |
+| BASE | USDT | `0xfde4c96c8593536e31f229ea8f37b2ada2699bb2` |
+
+### 表 B：非 EIP-3009（含非 EVM 链）
+
+| 网络 | Token | CA 地址 |
+|---|---|---|
+| ETH | USDC | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` |
+| BASE | USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+| Arbitrum One | USDC | `0xaf88d065e77c8cc2239327c5edb3a432268e5831` |
+| Polygon | USDC | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` |
+| Gatelayer | GUSD | `0xECE3F96198a5E6B9b2278edbEa8d548F66050d1c` |
+| Gatelayer | usdc.e | `0x8a2B28364102Bea189D99A475C494330Ef2bDD0B` |
+| Solana | USDC | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` |
+| Solana | USDT | `Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB` |
+
+> 说明：Solana 为非 EVM 链，天然不走 EIP-3009。
+
+---
+
 ## 通用前置
 
 - 使用 Gate openapi-test facilitator 时，需配置：
