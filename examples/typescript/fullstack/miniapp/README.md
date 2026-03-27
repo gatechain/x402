@@ -271,8 +271,8 @@ Network identifiers use [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/mai
 
 ## Troubleshooting
 
-- **`pnpm build` / `turbo run build` 失败：要求 `FACILITATOR_URL` / `EVM_ADDRESS`**：`FACILITATOR_URL` 未设置时默认 openapi-test；`EVM_ADDRESS` 未设置时使用占位 `payTo`（见 `app/api/protected/route.ts`），便于 Turbo 无 env 构建。收款请在本机 `.env` 里配置真实地址。
-- **`[baseline-browser-mapping] The data in this module is over two months old`**：来自 Next.js 依赖里的浏览器基线数据提示，**一般不影响构建成功**；若需按官方建议更新，可在本包执行 `pnpm add -D baseline-browser-mapping@latest`（是否仍出现取决于上游包发布时间）。
+- **`pnpm build` / `turbo run build` fails asking for `FACILITATOR_URL` / `EVM_ADDRESS`**: if `FACILITATOR_URL` is not set, it defaults to openapi-test; if `EVM_ADDRESS` is not set, a placeholder `payTo` is used (see `app/api/protected/route.ts`) so Turbo can build without env vars. For real payments, set your actual address in local `.env`.
+- **`[baseline-browser-mapping] The data in this module is over two months old`**: this comes from browser baseline data in Next.js dependencies and **usually does not block a successful build**. If you want to follow the recommendation, run `pnpm add -D baseline-browser-mapping@latest` in this package.
 
 ## Resources
 
